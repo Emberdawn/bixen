@@ -1,5 +1,5 @@
 ---
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/emberpro/public_html/wordpress_D/wp-content/plugins/lejrensarkivupload
+    - export DEPLOYPATH=/home/emberpro/public_html/bixen
     - /bin/cp -R * $DEPLOYPATH
