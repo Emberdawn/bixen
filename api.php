@@ -131,6 +131,25 @@ switch ($action) {
         echo json_encode($users);
         break;
 
+    case 'get_payments':
+        // NEW Action: Fetch payment entries with account and user information.
+        $result = $mysqli->query(
+            "SELECT payments.server_id, payments.local_id, payments.amount, payments.timestamp, " .
+            "accounts.name AS account_name, users.username AS user_name " .
+            "FROM payments " .
+            "JOIN accounts ON payments.account_id = accounts.id " .
+            "JOIN users ON payments.user_id = users.id " .
+            "ORDER BY payments.timestamp DESC;"
+        );
+        $payments = [];
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $payments[] = $row;
+            }
+        }
+        echo json_encode($payments);
+        break;
+
     case 'sync_payments':
         // Action: Receive and save payment data from the app. (No changes needed)
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -202,10 +221,41 @@ switch ($action) {
         $stmt->close();
         break;
 
+    case 'update_account_status':
+        // NEW Action: Update account active status from your web view.
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'This action requires a POST request.']);
+            break;
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        $accountId = $input['accountId'] ?? null;
+        $isActive = $input['isActive'] ?? null;
+
+        if (!$accountId || !is_bool($isActive)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Both accountId and isActive (boolean) are required.']);
+            break;
+        }
+
+        $stmt = $mysqli->prepare("UPDATE accounts SET is_active = ? WHERE id = ?");
+        $activeValue = $isActive ? 1 : 0;
+        $stmt->bind_param("ii", $activeValue, $accountId);
+
+        if ($stmt->execute()) {
+            echo json_encode(['status' => 'success', 'message' => "Account $accountId updated."]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to update account status.']);
+        }
+        $stmt->close();
+        break;
+
     default:
         // UPDATED: Added new actions to the error message.
         http_response_code(400); // Bad Request
-        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'sync_payments', 'get_devices', 'update_status'."]);
+        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
         break;
 }
 
