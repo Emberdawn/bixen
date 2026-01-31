@@ -74,45 +74,6 @@ switch ($action) {
             echo json_encode(['error' => 'deviceId is required for the ping action.']);
             break;
         }
-    
-    case 'login':
-            if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-                http_response_code(405);
-                echo json_encode(['status' => 'error', 'message' => 'POST request required.']);
-                break;
-            }
-    
-            $input = json_decode(file_get_contents('php://input'), true);
-            $username = $input['username'] ?? null;
-            $passwordHash = $input['passwordHash'] ?? null;
-    
-            if (!$username || !$passwordHash) {
-                http_response_code(400);
-                echo json_encode(['status' => 'error', 'message' => 'Username and passwordHash are required.']);
-                break;
-            }
-    
-            $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
-            $stmt->bind_param("s", $username);
-            $stmt->execute();
-            $result = $stmt->get_result();
-    
-            if ($result->num_rows > 0) {
-                $user = $result->fetch_assoc();
-                // Compare the app-provided hash with the one in the database
-                if ($passwordHash === $user['password_hash']) {
-                    // Success! Return the user's ID
-                    echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
-                } else {
-                    // Wrong password
-                    echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
-                }
-            } else {
-                // User not found
-                echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
-            }
-            $stmt->close();
-            break;
 
         // Use a prepared statement to prevent SQL injection.
         $stmt = $mysqli->prepare("SELECT connection_status FROM devices WHERE device_id = ?");
@@ -144,6 +105,41 @@ switch ($action) {
             'status' => 'success',
             'connectionStatus' => $connectionStatus
         ]);
+        break;
+
+    case 'login':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['status' => 'error', 'message' => 'POST request required.']);
+            break;
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        $username = $input['username'] ?? null;
+        $password = $input['password'] ?? null;
+
+        if (!$username || !$password) {
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Username and password are required.']);
+            break;
+        }
+
+        $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
+        $stmt->bind_param("s", $username);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows > 0) {
+            $user = $result->fetch_assoc();
+            if (password_verify($password, $user['password_hash'])) {
+                echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
+            } else {
+                echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
+            }
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
+        }
+        $stmt->close();
         break;
 
     case 'get_accounts':
