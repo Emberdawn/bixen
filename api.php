@@ -124,6 +124,9 @@ switch ($action) {
             break;
         }
 
+        // LOGGING: remove - trace login calls.
+        error_log("login called for username={$username}");
+
         $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
@@ -131,7 +134,10 @@ switch ($action) {
 
         if ($result->num_rows > 0) {
             $user = $result->fetch_assoc();
-            if (password_verify($password, $user['password_hash'])) {
+            $passwordMatches = password_verify($password, $user['password_hash']);
+            // LOGGING: remove - trace password comparison result.
+            error_log("login password comparison for username={$username} result=" . ($passwordMatches ? 'match' : 'no_match'));
+            if ($passwordMatches) {
                 echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
             } else {
                 echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
