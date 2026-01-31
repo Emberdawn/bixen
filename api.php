@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS devices (
 // The mysqli_multi_query function allows us to execute all CREATE TABLE statements at once.
 if (!$mysqli->multi_query($createTablesSql)) {
     http_response_code(500);
-    echo json_encode(['error' => 'Failed to initialize database tables: ' . $mysqli->error]);
+    echo json_encode(['status' => 'error', 'error' => 'Failed to initialize database tables: ' . $mysqli->error]);
     exit();
 }
 // We need to clear the results of the multi-query before proceeding.
@@ -71,7 +71,7 @@ switch ($action) {
         $deviceId = $_GET['deviceId'] ?? null;
         if (!$deviceId) {
             http_response_code(400);
-            echo json_encode(['error' => 'deviceId is required for the ping action.']);
+            echo json_encode(['status' => 'error', 'error' => 'deviceId is required for the ping action.']);
             break;
         }
 
@@ -139,7 +139,7 @@ switch ($action) {
         // Action: Create a new user.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
-            echo json_encode(['error' => 'The add_user action requires a POST request.']);
+            echo json_encode(['status' => 'error', 'error' => 'The add_user action requires a POST request.']);
             break;
         }
 
@@ -150,13 +150,13 @@ switch ($action) {
 
         if ($username === '' || $password === '') {
             http_response_code(400);
-            echo json_encode(['error' => 'Username and password are required.']);
+            echo json_encode(['status' => 'error', 'error' => 'Username and password are required.']);
             break;
         }
 
         if (!in_array($role, ['user', 'admin'], true)) {
             http_response_code(400);
-            echo json_encode(['error' => 'Role must be either user or admin.']);
+            echo json_encode(['status' => 'error', 'error' => 'Role must be either user or admin.']);
             break;
         }
 
@@ -168,7 +168,7 @@ switch ($action) {
             echo json_encode(['status' => 'success', 'id' => (int)$mysqli->insert_id]);
         } else {
             http_response_code(500);
-            echo json_encode(['error' => 'Failed to create user.']);
+            echo json_encode(['status' => 'error', 'error' => 'Failed to create user.']);
         }
         $stmt->close();
         break;
@@ -177,7 +177,7 @@ switch ($action) {
         // Action: Update an existing user.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
-            echo json_encode(['error' => 'The update_user action requires a POST request.']);
+            echo json_encode(['status' => 'error', 'error' => 'The update_user action requires a POST request.']);
             break;
         }
 
@@ -189,13 +189,13 @@ switch ($action) {
 
         if ($userId <= 0 || $username === '') {
             http_response_code(400);
-            echo json_encode(['error' => 'User id and username are required.']);
+            echo json_encode(['status' => 'error', 'error' => 'User id and username are required.']);
             break;
         }
 
         if (!in_array($role, ['user', 'admin'], true)) {
             http_response_code(400);
-            echo json_encode(['error' => 'Role must be either user or admin.']);
+            echo json_encode(['status' => 'error', 'error' => 'Role must be either user or admin.']);
             break;
         }
 
@@ -212,7 +212,7 @@ switch ($action) {
             echo json_encode(['status' => 'success']);
         } else {
             http_response_code(500);
-            echo json_encode(['error' => 'Failed to update user.']);
+            echo json_encode(['status' => 'error', 'error' => 'Failed to update user.']);
         }
         $stmt->close();
         break;
@@ -240,7 +240,7 @@ switch ($action) {
         // Action: Receive and save payment data from the app. (No changes needed)
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
-            echo json_encode(['error' => 'The sync_payments action requires a POST request.']);
+            echo json_encode(['status' => 'error', 'error' => 'The sync_payments action requires a POST request.']);
             break;
         }
         
@@ -281,7 +281,7 @@ switch ($action) {
         // NEW Action: Update a device's connection status from your web view.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
-            echo json_encode(['error' => 'This action requires a POST request.']);
+            echo json_encode(['status' => 'error', 'error' => 'This action requires a POST request.']);
             break;
         }
 
@@ -291,7 +291,7 @@ switch ($action) {
 
         if (!$deviceId || !in_array($status, ['allowed', 'denied'])) {
             http_response_code(400);
-            echo json_encode(['error' => 'Both deviceId and a valid connectionStatus (\'allowed\' or \'denied\') are required.']);
+            echo json_encode(['status' => 'error', 'error' => 'Both deviceId and a valid connectionStatus (\'allowed\' or \'denied\') are required.']);
             break;
         }
 
@@ -302,7 +302,7 @@ switch ($action) {
             echo json_encode(['status' => 'success', 'message' => "Device $deviceId status updated to $status."]);
         } else {
             http_response_code(500);
-            echo json_encode(['error' => 'Failed to update device status.']);
+            echo json_encode(['status' => 'error', 'error' => 'Failed to update device status.']);
         }
         $stmt->close();
         break;
@@ -311,7 +311,7 @@ switch ($action) {
         // NEW Action: Update account active status from your web view.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
-            echo json_encode(['error' => 'This action requires a POST request.']);
+            echo json_encode(['status' => 'error', 'error' => 'This action requires a POST request.']);
             break;
         }
 
@@ -321,7 +321,7 @@ switch ($action) {
 
         if (!$accountId || !is_bool($isActive)) {
             http_response_code(400);
-            echo json_encode(['error' => 'Both accountId and isActive (boolean) are required.']);
+            echo json_encode(['status' => 'error', 'error' => 'Both accountId and isActive (boolean) are required.']);
             break;
         }
 
@@ -333,7 +333,7 @@ switch ($action) {
             echo json_encode(['status' => 'success', 'message' => "Account $accountId updated."]);
         } else {
             http_response_code(500);
-            echo json_encode(['error' => 'Failed to update account status.']);
+            echo json_encode(['status' => 'error', 'error' => 'Failed to update account status.']);
         }
         $stmt->close();
         break;
@@ -393,7 +393,10 @@ switch ($action) {
     default:
         // UPDATED: Added new actions to the error message.
         http_response_code(400); // Bad Request
-        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status', 'login'."]);
+        echo json_encode([
+            'status' => 'error',
+            'error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status', 'login'."
+        ]);
         break;
 }
 
