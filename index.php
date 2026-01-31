@@ -326,6 +326,8 @@
                     <tr>
                         <th>ID</th>
                         <th>Username</th>
+                        <th>Role</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody data-table="users"></tbody>
@@ -356,6 +358,35 @@
                     <div class="modal-actions">
                         <button type="button" class="secondary" data-close-user-modal>Cancel</button>
                         <button type="submit">Create user</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="modal-backdrop hidden" data-edit-user-modal>
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-user-title">
+                <h3 id="edit-user-title">Edit user</h3>
+                <p>Update the user profile details.</p>
+                <form data-edit-user-form>
+                    <input type="hidden" name="id">
+                    <label>
+                        Username
+                        <input type="text" name="username" required autocomplete="off">
+                    </label>
+                    <label>
+                        Role
+                        <select name="role">
+                            <option value="user">User</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </label>
+                    <label>
+                        Password (leave blank to keep current)
+                        <input type="password" name="password" autocomplete="new-password">
+                    </label>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" data-close-edit-user-modal>Cancel</button>
+                        <button type="submit">Save changes</button>
                     </div>
                 </form>
             </div>
@@ -512,6 +543,8 @@
             setEmptyState('accounts', true);
         };
 
+        let usersCache = [];
+
         const loadUsers = async () => {
             const tbody = document.querySelector('[data-table="users"]');
             tbody.innerHTML = '';
@@ -528,9 +561,17 @@
                 return;
             }
 
+            usersCache = users;
             users.forEach((user) => {
                 const row = document.createElement('tr');
-                row.innerHTML = `<td>${user.id}</td><td>${user.name}</td>`;
+                row.innerHTML = `
+                    <td>${user.id}</td>
+                    <td>${user.name}</td>
+                    <td>${user.role ?? 'user'}</td>
+                    <td>
+                        <button type="button" class="secondary" data-edit-user="${user.id}">Edit</button>
+                    </td>
+                `;
                 tbody.appendChild(row);
             });
 
@@ -541,6 +582,9 @@
         const userForm = document.querySelector('[data-user-form]');
         const openUserModalButton = document.querySelector('[data-open-user-modal]');
         const closeUserModalButton = document.querySelector('[data-close-user-modal]');
+        const editUserModal = document.querySelector('[data-edit-user-modal]');
+        const editUserForm = document.querySelector('[data-edit-user-form]');
+        const closeEditUserModalButton = document.querySelector('[data-close-edit-user-modal]');
 
         const toggleUserModal = (shouldOpen) => {
             if (!userModal) return;
@@ -559,6 +603,30 @@
         userModal?.addEventListener('click', (event) => {
             if (event.target === userModal) {
                 toggleUserModal(false);
+            }
+        });
+
+        const toggleEditUserModal = (shouldOpen, user = null) => {
+            if (!editUserModal) return;
+            editUserModal.classList.toggle('hidden', !shouldOpen);
+            if (shouldOpen && user) {
+                editUserForm?.reset();
+                const idInput = editUserForm?.querySelector('input[name="id"]');
+                const usernameInput = editUserForm?.querySelector('input[name="username"]');
+                const roleSelect = editUserForm?.querySelector('select[name="role"]');
+                if (idInput) idInput.value = user.id;
+                if (usernameInput) usernameInput.value = user.name ?? '';
+                if (roleSelect) roleSelect.value = user.role ?? 'user';
+                usernameInput?.focus();
+            } else if (!shouldOpen) {
+                editUserForm?.reset();
+            }
+        };
+
+        closeEditUserModalButton?.addEventListener('click', () => toggleEditUserModal(false));
+        editUserModal?.addEventListener('click', (event) => {
+            if (event.target === editUserModal) {
+                toggleEditUserModal(false);
             }
         });
 
@@ -585,6 +653,33 @@
                 await loadUsers();
             } catch (error) {
                 alert(error.message || 'Unable to create user.');
+            }
+        });
+
+        editUserForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const formData = new FormData(editUserForm);
+            const payload = {
+                id: Number(formData.get('id')),
+                username: String(formData.get('username') || '').trim(),
+                role: String(formData.get('role') || 'user'),
+                password: String(formData.get('password') || ''),
+            };
+
+            if (!payload.id || !payload.username) {
+                alert('Please provide a username for this user.');
+                return;
+            }
+
+            try {
+                await api('update_user', {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                });
+                toggleEditUserModal(false);
+                await loadUsers();
+            } catch (error) {
+                alert(error.message || 'Unable to update user.');
             }
         });
 
@@ -667,6 +762,15 @@
                     body: JSON.stringify({ accountId, isActive: select.value === 'true' }),
                 });
                 await loadAccounts();
+                return;
+            }
+
+            const editUserButton = event.target.closest('[data-edit-user]');
+            if (editUserButton) {
+                const userId = Number(editUserButton.dataset.editUser);
+                const user = usersCache.find((entry) => entry.id === userId);
+                if (!user) return;
+                toggleEditUserModal(true, user);
             }
         });
 
