@@ -73,14 +73,30 @@ while ($mysqli->next_result()) {
 }
 
 $mysqli->query("INSERT IGNORE INTO debug_settings (`key`, `value`) VALUES ('enabled', '1');");
-$mysqli->query("ALTER TABLE debug_logs ADD COLUMN message TEXT NULL");
-$mysqli->query("ALTER TABLE debug_logs ADD COLUMN method VARCHAR(10) NULL");
-$mysqli->query("ALTER TABLE debug_logs ADD COLUMN action VARCHAR(100) NULL");
-$mysqli->query("ALTER TABLE debug_logs ADD COLUMN content_type VARCHAR(255) NULL");
-$mysqli->query("ALTER TABLE debug_logs ADD COLUMN query_params TEXT NULL");
-$mysqli->query("ALTER TABLE debug_logs ADD COLUMN json_payload TEXT NULL");
-$mysqli->query("ALTER TABLE debug_logs ADD COLUMN raw_body MEDIUMTEXT NULL");
-$mysqli->query("ALTER TABLE debug_logs ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+$addColumnIfMissing = function ($mysqli, $table, $column, $definition) {
+    $stmt = $mysqli->prepare(
+        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS " .
+        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?"
+    );
+    $stmt->bind_param("ss", $table, $column);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $exists = $result && $result->num_rows > 0;
+    $stmt->close();
+
+    if (!$exists) {
+        $mysqli->query("ALTER TABLE `$table` ADD COLUMN `$column` $definition");
+    }
+};
+
+$addColumnIfMissing($mysqli, 'debug_logs', 'message', 'TEXT NULL');
+$addColumnIfMissing($mysqli, 'debug_logs', 'method', 'VARCHAR(10) NULL');
+$addColumnIfMissing($mysqli, 'debug_logs', 'action', 'VARCHAR(100) NULL');
+$addColumnIfMissing($mysqli, 'debug_logs', 'content_type', 'VARCHAR(255) NULL');
+$addColumnIfMissing($mysqli, 'debug_logs', 'query_params', 'TEXT NULL');
+$addColumnIfMissing($mysqli, 'debug_logs', 'json_payload', 'TEXT NULL');
+$addColumnIfMissing($mysqli, 'debug_logs', 'raw_body', 'MEDIUMTEXT NULL');
+$addColumnIfMissing($mysqli, 'debug_logs', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP');
 
 
 // 3. --- ROUTING: DETERMINE THE ACTION ---
