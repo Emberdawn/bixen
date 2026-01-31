@@ -120,12 +120,16 @@ switch ($action) {
         break;
 
     case 'get_users':
-        // Action: Fetch all users. (No changes needed)
-        $result = $mysqli->query("SELECT id, username FROM users;");
+        // Action: Fetch all users.
+        $result = $mysqli->query("SELECT id, username, role FROM users;");
         $users = [];
         if ($result) {
             while ($row = $result->fetch_assoc()) {
-                $users[] = ['id' => (int)$row['id'], 'name' => $row['username']];
+                $users[] = [
+                    'id' => (int)$row['id'],
+                    'name' => $row['username'],
+                    'role' => $row['role']
+                ];
             }
         }
         echo json_encode($users);
@@ -165,6 +169,50 @@ switch ($action) {
         } else {
             http_response_code(500);
             echo json_encode(['error' => 'Failed to create user.']);
+        }
+        $stmt->close();
+        break;
+
+    case 'update_user':
+        // Action: Update an existing user.
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'The update_user action requires a POST request.']);
+            break;
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        $userId = isset($input['id']) ? (int)$input['id'] : 0;
+        $username = trim($input['username'] ?? '');
+        $password = $input['password'] ?? '';
+        $role = $input['role'] ?? 'user';
+
+        if ($userId <= 0 || $username === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'User id and username are required.']);
+            break;
+        }
+
+        if (!in_array($role, ['user', 'admin'], true)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Role must be either user or admin.']);
+            break;
+        }
+
+        if ($password !== '') {
+            $passwordHash = password_hash($password, PASSWORD_BCRYPT);
+            $stmt = $mysqli->prepare("UPDATE users SET username = ?, role = ?, password_hash = ? WHERE id = ?");
+            $stmt->bind_param("sssi", $username, $role, $passwordHash, $userId);
+        } else {
+            $stmt = $mysqli->prepare("UPDATE users SET username = ?, role = ? WHERE id = ?");
+            $stmt->bind_param("ssi", $username, $role, $userId);
+        }
+
+        if ($stmt->execute()) {
+            echo json_encode(['status' => 'success']);
+        } else {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to update user.']);
         }
         $stmt->close();
         break;
@@ -293,7 +341,7 @@ switch ($action) {
     default:
         // UPDATED: Added new actions to the error message.
         http_response_code(400); // Bad Request
-        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'add_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
+        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
         break;
 }
 
