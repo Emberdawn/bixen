@@ -294,6 +294,7 @@
                 </div>
                 <div class="toolbar">
                     <button type="button" data-refresh="accounts">Refresh</button>
+                    <button type="button" class="secondary" data-open-account-modal>Add account</button>
                 </div>
             </header>
             <table>
@@ -309,6 +310,30 @@
             </table>
             <div class="empty hidden" data-empty="accounts">No accounts found.</div>
         </section>
+
+        <div class="modal-backdrop hidden" data-account-modal>
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="add-account-title">
+                <h3 id="add-account-title">Add new account</h3>
+                <p>Create a new account record for this system.</p>
+                <form data-account-form>
+                    <label>
+                        Account name
+                        <input type="text" name="name" required autocomplete="off">
+                    </label>
+                    <label>
+                        Status
+                        <select name="isActive">
+                            <option value="true" selected>Active</option>
+                            <option value="false">Inactive</option>
+                        </select>
+                    </label>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" data-close-account-modal>Cancel</button>
+                        <button type="submit">Create account</button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
         <section id="users" class="card hidden">
             <header>
@@ -545,6 +570,10 @@
         };
 
         let usersCache = [];
+        const accountModal = document.querySelector('[data-account-modal]');
+        const accountForm = document.querySelector('[data-account-form]');
+        const openAccountModalButton = document.querySelector('[data-open-account-modal]');
+        const closeAccountModalButton = document.querySelector('[data-close-account-modal]');
 
         const loadUsers = async () => {
             const tbody = document.querySelector('[data-table="users"]');
@@ -578,6 +607,26 @@
 
             setEmptyState('users', true);
         };
+
+        const toggleAccountModal = (shouldOpen) => {
+            if (!accountModal) return;
+            accountModal.classList.toggle('hidden', !shouldOpen);
+            if (shouldOpen) {
+                const firstInput = accountForm?.querySelector('input[name="name"]');
+                firstInput?.focus();
+            } else {
+                accountForm?.reset();
+                openAccountModalButton?.focus();
+            }
+        };
+
+        openAccountModalButton?.addEventListener('click', () => toggleAccountModal(true));
+        closeAccountModalButton?.addEventListener('click', () => toggleAccountModal(false));
+        accountModal?.addEventListener('click', (event) => {
+            if (event.target === accountModal) {
+                toggleAccountModal(false);
+            }
+        });
 
         const userModal = document.querySelector('[data-user-modal]');
         const userForm = document.querySelector('[data-user-form]');
@@ -628,6 +677,31 @@
         editUserModal?.addEventListener('click', (event) => {
             if (event.target === editUserModal) {
                 toggleEditUserModal(false);
+            }
+        });
+
+        accountForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const formData = new FormData(accountForm);
+            const payload = {
+                name: String(formData.get('name') || '').trim(),
+                isActive: String(formData.get('isActive') || 'true') === 'true',
+            };
+
+            if (!payload.name) {
+                alert('Please provide an account name.');
+                return;
+            }
+
+            try {
+                await api('add_account', {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                });
+                toggleAccountModal(false);
+                await loadAccounts();
+            } catch (error) {
+                alert(error.message || 'Unable to create account.');
             }
         });
 
