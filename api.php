@@ -42,6 +42,21 @@ CREATE TABLE IF NOT EXISTS devices (
     connection_status VARCHAR(50) NOT NULL DEFAULT 'allowed',
     first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS debug_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    message TEXT NULL,
+    method VARCHAR(10) NULL,
+    action VARCHAR(100) NULL,
+    content_type VARCHAR(255) NULL,
+    query_params TEXT NULL,
+    json_payload TEXT NULL,
+    raw_body MEDIUMTEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS debug_settings (
+    `key` VARCHAR(100) PRIMARY KEY,
+    `value` VARCHAR(10) NOT NULL
 );";
 
 // The mysqli_multi_query function allows us to execute all CREATE TABLE statements at once.
@@ -57,10 +72,69 @@ while ($mysqli->next_result()) {
     }
 }
 
+$mysqli->query("INSERT IGNORE INTO debug_settings (`key`, `value`) VALUES ('enabled', '1');");
+$mysqli->query("ALTER TABLE debug_logs ADD COLUMN message TEXT NULL");
+$mysqli->query("ALTER TABLE debug_logs ADD COLUMN method VARCHAR(10) NULL");
+$mysqli->query("ALTER TABLE debug_logs ADD COLUMN action VARCHAR(100) NULL");
+$mysqli->query("ALTER TABLE debug_logs ADD COLUMN content_type VARCHAR(255) NULL");
+$mysqli->query("ALTER TABLE debug_logs ADD COLUMN query_params TEXT NULL");
+$mysqli->query("ALTER TABLE debug_logs ADD COLUMN json_payload TEXT NULL");
+$mysqli->query("ALTER TABLE debug_logs ADD COLUMN raw_body MEDIUMTEXT NULL");
+$mysqli->query("ALTER TABLE debug_logs ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
+
 
 // 3. --- ROUTING: DETERMINE THE ACTION ---
 // We use a URL parameter '?action=...' to decide what to do.
 $action = $_GET['action'] ?? ''; // Safely get the action, default to empty string.
+$rawBody = file_get_contents('php://input');
+$jsonInput = null;
+if ($rawBody !== '') {
+    $decoded = json_decode($rawBody, true);
+    if (json_last_error() === JSON_ERROR_NONE) {
+        $jsonInput = $decoded;
+    }
+}
+
+$isDebugLoggingEnabled = function ($mysqli) {
+    $stmt = $mysqli->prepare("SELECT value FROM debug_settings WHERE `key` = 'enabled'");
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $value = '0';
+    if ($result && $row = $result->fetch_assoc()) {
+        $value = $row['value'] ?? '0';
+    }
+    $stmt->close();
+    return $value === '1';
+};
+
+$logIncomingRequest = function ($mysqli, $action, $rawBody, $jsonInput) use ($isDebugLoggingEnabled) {
+    if (!$isDebugLoggingEnabled($mysqli)) {
+        return;
+    }
+
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+    $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+    $isJson = stripos($contentType, 'application/json') !== false;
+
+    if ($method !== 'POST' && !$isJson) {
+        return;
+    }
+
+    $queryParams = !empty($_GET) ? json_encode($_GET) : null;
+    $jsonPayload = is_array($jsonInput) ? json_encode($jsonInput) : null;
+    $rawBodyValue = $rawBody !== '' ? $rawBody : null;
+    $message = sprintf('request logged: %s %s', $method, $action ?: 'unknown');
+
+    $stmt = $mysqli->prepare(
+        "INSERT INTO debug_logs (message, method, action, content_type, query_params, json_payload, raw_body) " .
+        "VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    $stmt->bind_param("sssssss", $message, $method, $action, $contentType, $queryParams, $jsonPayload, $rawBodyValue);
+    $stmt->execute();
+    $stmt->close();
+};
+
+$logIncomingRequest($mysqli, $action, $rawBody, $jsonInput);
 
 
 // 4. --- ACTION HANDLER ---
@@ -114,7 +188,7 @@ switch ($action) {
             break;
         }
 
-        $input = json_decode(file_get_contents('php://input'), true);
+        $input = is_array($jsonInput) ? $jsonInput : [];
         $username = $input['username'] ?? null;
         $password = $input['password'] ?? null;
 
@@ -124,20 +198,6 @@ switch ($action) {
             break;
         }
 
-        // LOGGING: remove - trace login calls.
-        $mysqli->query(
-            "CREATE TABLE IF NOT EXISTS debug_logs (" .
-            "id INT AUTO_INCREMENT PRIMARY KEY, " .
-            "message TEXT NOT NULL, " .
-            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" .
-            ")"
-        );
-        $logMessage = "login called for username={$username}";
-        $logStmt = $mysqli->prepare("INSERT INTO debug_logs (message) VALUES (?)");
-        $logStmt->bind_param("s", $logMessage);
-        $logStmt->execute();
-        $logStmt->close();
-
         $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
@@ -146,12 +206,6 @@ switch ($action) {
         if ($result->num_rows > 0) {
             $user = $result->fetch_assoc();
             $passwordMatches = password_verify($password, $user['password_hash']);
-            // LOGGING: remove - trace password comparison result.
-            $logMessage = "login password comparison for username={$username} result=" . ($passwordMatches ? 'match' : 'no_match');
-            $logStmt = $mysqli->prepare("INSERT INTO debug_logs (message) VALUES (?)");
-            $logStmt->bind_param("s", $logMessage);
-            $logStmt->execute();
-            $logStmt->close();
             if ($passwordMatches) {
                 echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
             } else {
@@ -199,7 +253,7 @@ switch ($action) {
             break;
         }
 
-        $input = json_decode(file_get_contents('php://input'), true);
+        $input = is_array($jsonInput) ? $jsonInput : [];
         $username = trim($input['username'] ?? '');
         $password = $input['password'] ?? '';
         $role = $input['role'] ?? 'user';
@@ -237,7 +291,7 @@ switch ($action) {
             break;
         }
 
-        $input = json_decode(file_get_contents('php://input'), true);
+        $input = is_array($jsonInput) ? $jsonInput : [];
         $userId = isset($input['id']) ? (int)$input['id'] : 0;
         $username = trim($input['username'] ?? '');
         $password = $input['password'] ?? '';
@@ -300,8 +354,7 @@ switch ($action) {
             break;
         }
         
-        $json_input = file_get_contents('php://input');
-        $payments_from_app = json_decode($json_input, true);
+        $payments_from_app = is_array($jsonInput) ? $jsonInput : [];
         $sync_results = [];
 
         $stmt = $mysqli->prepare("INSERT INTO payments (local_id, account_id, user_id, amount, `timestamp`) VALUES (?, ?, ?, ?, ?)");
@@ -341,7 +394,7 @@ switch ($action) {
             break;
         }
 
-        $input = json_decode(file_get_contents('php://input'), true);
+        $input = is_array($jsonInput) ? $jsonInput : [];
         $deviceId = $input['deviceId'] ?? null;
         $status = $input['connectionStatus'] ?? null;
 
@@ -371,7 +424,7 @@ switch ($action) {
             break;
         }
 
-        $input = json_decode(file_get_contents('php://input'), true);
+        $input = is_array($jsonInput) ? $jsonInput : [];
         $accountId = $input['accountId'] ?? null;
         $isActive = $input['isActive'] ?? null;
 
@@ -394,10 +447,64 @@ switch ($action) {
         $stmt->close();
         break;
 
+    case 'get_debug_logging':
+        $enabled = $isDebugLoggingEnabled($mysqli);
+        echo json_encode(['enabled' => $enabled]);
+        break;
+
+    case 'set_debug_logging':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'The set_debug_logging action requires a POST request.']);
+            break;
+        }
+
+        $input = is_array($jsonInput) ? $jsonInput : [];
+        $enabled = isset($input['enabled']) ? (bool)$input['enabled'] : null;
+        if (!is_bool($enabled)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'enabled (boolean) is required.']);
+            break;
+        }
+
+        $value = $enabled ? '1' : '0';
+        $stmt = $mysqli->prepare("UPDATE debug_settings SET value = ? WHERE `key` = 'enabled'");
+        $stmt->bind_param("s", $value);
+        if ($stmt->execute()) {
+            echo json_encode(['status' => 'success', 'enabled' => $enabled]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to update debug logging setting.']);
+        }
+        $stmt->close();
+        break;
+
+    case 'get_logs':
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 200;
+        if ($limit <= 0 || $limit > 500) {
+            $limit = 200;
+        }
+        $stmt = $mysqli->prepare(
+            "SELECT id, message, method, action, content_type, query_params, json_payload, raw_body, created_at " .
+            "FROM debug_logs ORDER BY created_at DESC LIMIT ?"
+        );
+        $stmt->bind_param("i", $limit);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $logs = [];
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $logs[] = $row;
+            }
+        }
+        $stmt->close();
+        echo json_encode($logs);
+        break;
+
     default:
         // UPDATED: Added new actions to the error message.
         http_response_code(400); // Bad Request
-        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
+        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'login', 'get_accounts', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status', 'get_debug_logging', 'set_debug_logging', 'get_logs'."]);
         break;
 }
 

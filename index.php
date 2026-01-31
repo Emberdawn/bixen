@@ -224,6 +224,19 @@
             gap: 8px;
         }
 
+        .log-table td {
+            vertical-align: top;
+        }
+
+        .log-table pre {
+            margin: 0;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-width: 420px;
+        }
+
         select {
             padding: 6px 8px;
             border-radius: 6px;
@@ -256,6 +269,7 @@
             <button type="button" data-section="accounts">Accounts</button>
             <button type="button" data-section="users">Users</button>
             <button type="button" data-section="payments">Payments</button>
+            <button type="button" data-section="debug">Debug Logs</button>
         </nav>
     </aside>
     <main>
@@ -416,6 +430,40 @@
                 <tbody data-table="payments"></tbody>
             </table>
             <div class="empty hidden" data-empty="payments">No payments synced yet.</div>
+        </section>
+
+        <section id="debug" class="card hidden">
+            <header>
+                <div>
+                    <h2>Debug Logs</h2>
+                    <p>Track incoming API requests and JSON payloads.</p>
+                </div>
+                <div class="toolbar">
+                    <div class="inline-select">
+                        <label for="debug-logging-select">Logging</label>
+                        <select id="debug-logging-select" data-debug-select>
+                            <option value="enabled">Enabled</option>
+                            <option value="disabled">Disabled</option>
+                        </select>
+                    </div>
+                    <button type="button" data-refresh="debug">Refresh</button>
+                </div>
+            </header>
+            <table class="log-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Method</th>
+                        <th>Action</th>
+                        <th>Content Type</th>
+                        <th>Query</th>
+                        <th>JSON</th>
+                        <th>Raw Body</th>
+                    </tr>
+                </thead>
+                <tbody data-table="debug"></tbody>
+            </table>
+            <div class="empty hidden" data-empty="debug">No debug logs yet.</div>
         </section>
     </main>
 
@@ -715,11 +763,69 @@
             setEmptyState('payments', true);
         };
 
+        const formatLogPayload = (value) => {
+            if (!value) return '—';
+            try {
+                const parsed = JSON.parse(value);
+                return JSON.stringify(parsed, null, 2);
+            } catch (error) {
+                return value;
+            }
+        };
+
+        const loadDebugLogs = async () => {
+            const tbody = document.querySelector('[data-table="debug"]');
+            tbody.innerHTML = '';
+            let logs = [];
+            try {
+                logs = await api('get_logs');
+            } catch (error) {
+                handleLoadError('debug', error);
+                return;
+            }
+
+            if (!logs.length) {
+                setEmptyState('debug', false);
+                return;
+            }
+
+            logs.forEach((log) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${formatTimestamp(log.created_at)}</td>
+                    <td>${log.method ?? '—'}</td>
+                    <td>${log.action ?? '—'}</td>
+                    <td>${log.content_type ?? '—'}</td>
+                    <td><pre>${formatLogPayload(log.query_params)}</pre></td>
+                    <td><pre>${formatLogPayload(log.json_payload)}</pre></td>
+                    <td><pre>${log.raw_body ? log.raw_body : '—'}</pre></td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            setEmptyState('debug', true);
+        };
+
+        const loadDebugSettings = async () => {
+            const select = document.querySelector('[data-debug-select]');
+            if (!select) return;
+            try {
+                const settings = await api('get_debug_logging');
+                select.value = settings.enabled ? 'enabled' : 'disabled';
+            } catch (error) {
+                handleLoadError('debug', error);
+            }
+        };
+
         const refreshHandlers = {
             devices: loadDevices,
             accounts: loadAccounts,
             users: loadUsers,
             payments: loadPayments,
+            debug: async () => {
+                await loadDebugSettings();
+                await loadDebugLogs();
+            },
         };
 
         navButtons.forEach((button) => {
@@ -771,6 +877,19 @@
                 const user = usersCache.find((entry) => entry.id === userId);
                 if (!user) return;
                 toggleEditUserModal(true, user);
+            }
+        });
+
+        document.querySelector('[data-debug-select]')?.addEventListener('change', async (event) => {
+            const value = event.target.value === 'enabled';
+            try {
+                await api('set_debug_logging', {
+                    method: 'POST',
+                    body: JSON.stringify({ enabled: value }),
+                });
+                await loadDebugLogs();
+            } catch (error) {
+                alert(error.message || 'Unable to update debug logging.');
             }
         });
 
