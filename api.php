@@ -136,6 +136,18 @@ $logIncomingRequest = function ($mysqli, $action, $rawBody, $jsonInput) use ($is
 
 $logIncomingRequest($mysqli, $action, $rawBody, $jsonInput);
 
+// 3b. --- PASSWORD HELPERS ---
+$isSha256Hex = function ($value) {
+    return is_string($value) && preg_match('/^[a-f0-9]{64}$/i', $value) === 1;
+};
+
+$normalizePasswordHash = function ($password) use ($isSha256Hex) {
+    if ($isSha256Hex($password)) {
+        return strtolower($password);
+    }
+    return hash('sha256', $password);
+};
+
 
 // 4. --- ACTION HANDLER ---
 // A switch statement directs the request to the correct block of code.
@@ -205,7 +217,16 @@ switch ($action) {
 
         if ($result->num_rows > 0) {
             $user = $result->fetch_assoc();
-            $passwordMatches = password_verify($password, $user['password_hash']);
+            $storedHash = $user['password_hash'];
+            $normalizedPassword = $normalizePasswordHash($password);
+            $passwordMatches = false;
+
+            if (preg_match('/^\$2y\$/', $storedHash) === 1) {
+                $passwordMatches = password_verify($password, $storedHash)
+                    || password_verify($normalizedPassword, $storedHash);
+            } else {
+                $passwordMatches = hash_equals($storedHash, $normalizedPassword);
+            }
             if ($passwordMatches) {
                 echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
             } else {
@@ -270,7 +291,7 @@ switch ($action) {
             break;
         }
 
-        $passwordHash = password_hash($password, PASSWORD_BCRYPT);
+        $passwordHash = $normalizePasswordHash($password);
         $stmt = $mysqli->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)");
         $stmt->bind_param("sss", $username, $passwordHash, $role);
 
@@ -310,7 +331,7 @@ switch ($action) {
         }
 
         if ($password !== '') {
-            $passwordHash = password_hash($password, PASSWORD_BCRYPT);
+            $passwordHash = $normalizePasswordHash($password);
             $stmt = $mysqli->prepare("UPDATE users SET username = ?, role = ?, password_hash = ? WHERE id = ?");
             $stmt->bind_param("sssi", $username, $role, $passwordHash, $userId);
         } else {
