@@ -338,55 +338,10 @@ switch ($action) {
         $stmt->close();
         break;
 
-    case 'login':
-        // Action: Authenticate a user.
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            // Ensure the response contains the 'status' field.
-            echo json_encode(['status' => 'error', 'message' => 'This action requires a POST request.']);
-            break;
-        }
-
-        $input = json_decode(file_get_contents('php://input'), true);
-        $username = $input['username'] ?? null;
-        $passwordHash = $input['passwordHash'] ?? null;
-
-        if (!$username || !$passwordHash) {
-            http_response_code(400);
-            // Ensure the response contains the 'status' field.
-            echo json_encode(['status' => 'error', 'message' => 'Username and passwordHash are required.']);
-            break;
-        }
-
-        // Use a prepared statement to prevent SQL injection.
-        $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
-        $stmt->bind_param("s", $username);
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        if ($result->num_rows > 0) {
-            $user = $result->fetch_assoc();
-
-            // The app sends a SHA-256 hash. We compare it to the one in the database.
-            // For better security, consider using password_hash() and password_verify() in PHP.
-            if ($passwordHash === $user['password_hash']) {
-                // Password is correct.
-                echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
-            } else {
-                // Invalid password.
-                echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
-            }
-        } else {
-            // User not found.
-            echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
-        }
-        $stmt->close();
-        break;
-
     default:
         // UPDATED: Added new actions to the error message.
         http_response_code(400); // Bad Request
-        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status', 'login'."]);
+        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
         break;
 }
 
