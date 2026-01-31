@@ -313,8 +313,15 @@
                 ...options,
             }).then(async (response) => {
                 if (!response.ok) {
-                    const error = await response.json().catch(() => ({}));
-                    throw new Error(error.error || `Request failed (${response.status})`);
+                    const rawBody = await response.text();
+                    let parsedError = {};
+                    try {
+                        parsedError = rawBody ? JSON.parse(rawBody) : {};
+                    } catch (parseError) {
+                        parsedError = {};
+                    }
+                    const fallbackMessage = rawBody ? rawBody.trim() : `Request failed (${response.status})`;
+                    throw new Error(parsedError.error || fallbackMessage);
                 }
                 return response.json();
             });
@@ -335,7 +342,7 @@
             }
             const empty = document.querySelector(`[data-empty="${name}"]`);
             if (empty) {
-                empty.textContent = 'Unable to load data from the API.';
+                empty.textContent = `Unable to load data from the API. ${error.message}`;
                 empty.classList.remove('hidden');
             }
         };
