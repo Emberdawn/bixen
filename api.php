@@ -131,8 +131,10 @@ $logIncomingRequest = function ($mysqli, $action, $rawBody, $jsonInput) use ($is
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
     $isJson = stripos($contentType, 'application/json') !== false;
+    $deviceActions = ['ping', 'login', 'sync_payments'];
+    $isDeviceAction = $action !== '' && in_array($action, $deviceActions, true);
 
-    if ($method !== 'POST' && !$isJson) {
+    if (!$isDeviceAction) {
         return;
     }
 
