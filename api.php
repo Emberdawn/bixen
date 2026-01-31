@@ -131,6 +131,44 @@ switch ($action) {
         echo json_encode($users);
         break;
 
+    case 'add_user':
+        // Action: Create a new user.
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'The add_user action requires a POST request.']);
+            break;
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true);
+        $username = trim($input['username'] ?? '');
+        $password = $input['password'] ?? '';
+        $role = $input['role'] ?? 'user';
+
+        if ($username === '' || $password === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Username and password are required.']);
+            break;
+        }
+
+        if (!in_array($role, ['user', 'admin'], true)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Role must be either user or admin.']);
+            break;
+        }
+
+        $passwordHash = password_hash($password, PASSWORD_BCRYPT);
+        $stmt = $mysqli->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)");
+        $stmt->bind_param("sss", $username, $passwordHash, $role);
+
+        if ($stmt->execute()) {
+            echo json_encode(['status' => 'success', 'id' => (int)$mysqli->insert_id]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to create user.']);
+        }
+        $stmt->close();
+        break;
+
     case 'get_payments':
         // NEW Action: Fetch payment entries with account and user information.
         $result = $mysqli->query(
@@ -255,7 +293,7 @@ switch ($action) {
     default:
         // UPDATED: Added new actions to the error message.
         http_response_code(400); // Bad Request
-        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
+        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'add_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
         break;
 }
 

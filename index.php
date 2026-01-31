@@ -112,6 +112,62 @@
             color: #0f172a;
         }
 
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            z-index: 10;
+        }
+
+        .modal {
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+            padding: 24px;
+            width: min(420px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .modal h3 {
+            margin: 0;
+            font-size: 20px;
+        }
+
+        .modal form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .modal label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1f2937;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .modal input,
+        .modal select {
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid #cbd5f5;
+            font-size: 14px;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
         table {
             width: 100%;
             border-collapse: collapse;
@@ -262,6 +318,7 @@
                 </div>
                 <div class="toolbar">
                     <button type="button" data-refresh="users">Refresh</button>
+                    <button type="button" class="secondary" data-open-user-modal>Add user</button>
                 </div>
             </header>
             <table>
@@ -275,6 +332,34 @@
             </table>
             <div class="empty hidden" data-empty="users">No users found.</div>
         </section>
+
+        <div class="modal-backdrop hidden" data-user-modal>
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="add-user-title">
+                <h3 id="add-user-title">Add new user</h3>
+                <p>Create a new user account for this system.</p>
+                <form data-user-form>
+                    <label>
+                        Username
+                        <input type="text" name="username" required autocomplete="off">
+                    </label>
+                    <label>
+                        Password
+                        <input type="password" name="password" required autocomplete="new-password">
+                    </label>
+                    <label>
+                        Role
+                        <select name="role">
+                            <option value="user" selected>User</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </label>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary" data-close-user-modal>Cancel</button>
+                        <button type="submit">Create user</button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
         <section id="payments" class="card hidden">
             <header>
@@ -451,6 +536,57 @@
 
             setEmptyState('users', true);
         };
+
+        const userModal = document.querySelector('[data-user-modal]');
+        const userForm = document.querySelector('[data-user-form]');
+        const openUserModalButton = document.querySelector('[data-open-user-modal]');
+        const closeUserModalButton = document.querySelector('[data-close-user-modal]');
+
+        const toggleUserModal = (shouldOpen) => {
+            if (!userModal) return;
+            userModal.classList.toggle('hidden', !shouldOpen);
+            if (shouldOpen) {
+                const firstInput = userForm?.querySelector('input[name="username"]');
+                firstInput?.focus();
+            } else {
+                userForm?.reset();
+                openUserModalButton?.focus();
+            }
+        };
+
+        openUserModalButton?.addEventListener('click', () => toggleUserModal(true));
+        closeUserModalButton?.addEventListener('click', () => toggleUserModal(false));
+        userModal?.addEventListener('click', (event) => {
+            if (event.target === userModal) {
+                toggleUserModal(false);
+            }
+        });
+
+        userForm?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const formData = new FormData(userForm);
+            const payload = {
+                username: String(formData.get('username') || '').trim(),
+                password: String(formData.get('password') || ''),
+                role: String(formData.get('role') || 'user'),
+            };
+
+            if (!payload.username || !payload.password) {
+                alert('Please provide a username and password.');
+                return;
+            }
+
+            try {
+                await api('add_user', {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                });
+                toggleUserModal(false);
+                await loadUsers();
+            } catch (error) {
+                alert(error.message || 'Unable to create user.');
+            }
+        });
 
         const loadPayments = async () => {
             const tbody = document.querySelector('[data-table="payments"]');
