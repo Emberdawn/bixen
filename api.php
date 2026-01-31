@@ -1,24 +1,25 @@
 <?php
-// This is a unified API endpoint that handles multiple actions.
+// api.php - Unified API Endpoint
+// --- 1. SETUP AND CONFIGURATION ---
 
-// 1. --- SETUP AND CONFIGURATION ---
 // Set the content type for all responses to JSON.
 header('Content-Type: application/json');
 
 // Include the database configuration. This provides the $mysqli object.
+// Using require_once ensures it's only included once, even if called multiple times.
 require_once 'db_config.php';
 
 
-// 2. --- INITIALIZE DATABASE TABLES ---
-// For robustness, we ensure all required tables exist on startup.
-// This block will run on every request, but the "IF NOT EXISTS" clause
-// means it will only create the tables on the very first run.
+// --- 2. DATABASE INITIALIZATION ---
 
-// ADDED: A new table to store device information.
+// This SQL block defines the structure of our database.
+// Using "CREATE TABLE IF NOT EXISTS" is a safe way to ensure the tables
+// are ready without causing errors on subsequent runs.
 $createTablesSql = "
 CREATE TABLE IF NOT EXISTS accounts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
+    sort_order INT DEFAULT 0,
     is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 CREATE TABLE IF NOT EXISTS users (
@@ -27,30 +28,32 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(50) NOT NULL DEFAULT 'user'
 );
+CREATE TABLE IF NOT EXISTS devices (
+    device_id VARCHAR(255) PRIMARY KEY,
+    connection_status VARCHAR(50) NOT NULL DEFAULT 'allowed', -- 'allowed' or 'denied'
+    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS payments (
     server_id INT AUTO_INCREMENT PRIMARY KEY,
+    local_id BIGINT, -- The original ID from the app's local database
     account_id INT NOT NULL,
     user_id INT NOT NULL,
     amount INT NOT NULL,
-    `timestamp` DATETIME NOT NULL,
-    local_id BIGINT,
+    timestamp DATETIME NOT NULL,
+    device_id VARCHAR(255),
     FOREIGN KEY (account_id) REFERENCES accounts(id),
-    FOREIGN KEY (user_id) REFERENCES users(id)
-);
-CREATE TABLE IF NOT EXISTS devices (
-    device_id VARCHAR(255) PRIMARY KEY,
-    connection_status VARCHAR(50) NOT NULL DEFAULT 'allowed',
-    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );";
 
-// The mysqli_multi_query function allows us to execute all CREATE TABLE statements at once.
+// We use multi_query to execute all table creation statements at once.
 if (!$mysqli->multi_query($createTablesSql)) {
     http_response_code(500);
-    echo json_encode(['status' => 'error', 'error' => 'Failed to initialize database tables: ' . $mysqli->error]);
+    echo json_encode(['error' => 'Failed to initialize database tables: ' . $mysqli->error]);
     exit();
 }
-// We need to clear the results of the multi-query before proceeding.
+// Clear the results from the multi_query before proceeding.
 while ($mysqli->next_result()) {
     if ($result = $mysqli->store_result()) {
         $result->free();
@@ -58,309 +61,68 @@ while ($mysqli->next_result()) {
 }
 
 
-// 3. --- ROUTING: DETERMINE THE ACTION ---
-// We use a URL parameter '?action=...' to decide what to do.
-$action = $_GET['action'] ?? ''; // Safely get the action, default to empty string.
+// --- 3. ROUTING ---
+
+// Determine the requested action from the URL (e.g., api.php?action=ping).
+$action = $_GET['action'] ?? '';
 
 
-// 4. --- ACTION HANDLER ---
-// A switch statement directs the request to the correct block of code.
+// --- 4. ACTION HANDLERS ---
+
 switch ($action) {
+
     case 'ping':
-        // UPDATED: This action now handles device registration and status checks.
         $deviceId = $_GET['deviceId'] ?? null;
         if (!$deviceId) {
             http_response_code(400);
-            echo json_encode(['status' => 'error', 'error' => 'deviceId is required for the ping action.']);
+            echo json_encode(['status' => 'error', 'message' => 'deviceId is required.']);
             break;
         }
 
-        // Use a prepared statement to prevent SQL injection.
+        // Check if device exists
         $stmt = $mysqli->prepare("SELECT connection_status FROM devices WHERE device_id = ?");
         $stmt->bind_param("s", $deviceId);
         $stmt->execute();
         $result = $stmt->get_result();
 
         if ($result->num_rows > 0) {
-            // Device exists, fetch its status.
-            $row = $result->fetch_assoc();
-            $connectionStatus = $row['connection_status'];
-            // Also update the 'last_seen' timestamp.
+            // Device exists, update last_seen and get its status
             $updateStmt = $mysqli->prepare("UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE device_id = ?");
             $updateStmt->bind_param("s", $deviceId);
             $updateStmt->execute();
-            $updateStmt->close();
+            $connectionStatus = $result->fetch_assoc()['connection_status'];
         } else {
-            // New device, insert it with the default status 'allowed'.
+            // New device, register it
             $insertStmt = $mysqli->prepare("INSERT INTO devices (device_id) VALUES (?)");
             $insertStmt->bind_param("s", $deviceId);
             $insertStmt->execute();
-            $insertStmt->close();
-            $connectionStatus = 'allowed'; // Default status for new devices.
+            $connectionStatus = 'allowed'; // Default for new devices
         }
-        $stmt->close();
 
-        // Return the required JSON structure for the app.
+        // Return the JSON structure the app expects (PingStatusResponse)
         echo json_encode([
             'status' => 'success',
             'connectionStatus' => $connectionStatus
         ]);
         break;
 
-    case 'get_accounts':
-        // Action: Fetch all active accounts. (No changes needed)
-        $result = $mysqli->query("SELECT id, name, is_active FROM accounts WHERE is_active = TRUE;");
-        $accounts = [];
-        if ($result) {
-            while ($row = $result->fetch_assoc()) {
-                $accounts[] = ['id' => (int)$row['id'], 'name' => $row['name'], 'active' => (bool)$row['is_active']];
-            }
-        }
-        echo json_encode($accounts);
-        break;
-
-    case 'get_users':
-        // Action: Fetch all users.
-        $result = $mysqli->query("SELECT id, username, role FROM users;");
-        $users = [];
-        if ($result) {
-            while ($row = $result->fetch_assoc()) {
-                $users[] = [
-                    'id' => (int)$row['id'],
-                    'name' => $row['username'],
-                    'role' => $row['role']
-                ];
-            }
-        }
-        echo json_encode($users);
-        break;
-
-    case 'add_user':
-        // Action: Create a new user.
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['status' => 'error', 'error' => 'The add_user action requires a POST request.']);
-            break;
-        }
-
-        $input = json_decode(file_get_contents('php://input'), true);
-        $username = trim($input['username'] ?? '');
-        $password = $input['password'] ?? '';
-        $role = $input['role'] ?? 'user';
-
-        if ($username === '' || $password === '') {
-            http_response_code(400);
-            echo json_encode(['status' => 'error', 'error' => 'Username and password are required.']);
-            break;
-        }
-
-        if (!in_array($role, ['user', 'admin'], true)) {
-            http_response_code(400);
-            echo json_encode(['status' => 'error', 'error' => 'Role must be either user or admin.']);
-            break;
-        }
-
-        $passwordHash = password_hash($password, PASSWORD_BCRYPT);
-        $stmt = $mysqli->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)");
-        $stmt->bind_param("sss", $username, $passwordHash, $role);
-
-        if ($stmt->execute()) {
-            echo json_encode(['status' => 'success', 'id' => (int)$mysqli->insert_id]);
-        } else {
-            http_response_code(500);
-            echo json_encode(['status' => 'error', 'error' => 'Failed to create user.']);
-        }
-        $stmt->close();
-        break;
-
-    case 'update_user':
-        // Action: Update an existing user.
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['status' => 'error', 'error' => 'The update_user action requires a POST request.']);
-            break;
-        }
-
-        $input = json_decode(file_get_contents('php://input'), true);
-        $userId = isset($input['id']) ? (int)$input['id'] : 0;
-        $username = trim($input['username'] ?? '');
-        $password = $input['password'] ?? '';
-        $role = $input['role'] ?? 'user';
-
-        if ($userId <= 0 || $username === '') {
-            http_response_code(400);
-            echo json_encode(['status' => 'error', 'error' => 'User id and username are required.']);
-            break;
-        }
-
-        if (!in_array($role, ['user', 'admin'], true)) {
-            http_response_code(400);
-            echo json_encode(['status' => 'error', 'error' => 'Role must be either user or admin.']);
-            break;
-        }
-
-        if ($password !== '') {
-            $passwordHash = password_hash($password, PASSWORD_BCRYPT);
-            $stmt = $mysqli->prepare("UPDATE users SET username = ?, role = ?, password_hash = ? WHERE id = ?");
-            $stmt->bind_param("sssi", $username, $role, $passwordHash, $userId);
-        } else {
-            $stmt = $mysqli->prepare("UPDATE users SET username = ?, role = ? WHERE id = ?");
-            $stmt->bind_param("ssi", $username, $role, $userId);
-        }
-
-        if ($stmt->execute()) {
-            echo json_encode(['status' => 'success']);
-        } else {
-            http_response_code(500);
-            echo json_encode(['status' => 'error', 'error' => 'Failed to update user.']);
-        }
-        $stmt->close();
-        break;
-
-    case 'get_payments':
-        // NEW Action: Fetch payment entries with account and user information.
-        $result = $mysqli->query(
-            "SELECT payments.server_id, payments.local_id, payments.amount, payments.`timestamp`, " .
-            "accounts.name AS account_name, users.username AS user_name " .
-            "FROM payments " .
-            "JOIN accounts ON payments.account_id = accounts.id " .
-            "JOIN users ON payments.user_id = users.id " .
-            "ORDER BY payments.`timestamp` DESC;"
-        );
-        $payments = [];
-        if ($result) {
-            while ($row = $result->fetch_assoc()) {
-                $payments[] = $row;
-            }
-        }
-        echo json_encode($payments);
-        break;
-
-    case 'sync_payments':
-        // Action: Receive and save payment data from the app. (No changes needed)
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['status' => 'error', 'error' => 'The sync_payments action requires a POST request.']);
-            break;
-        }
-        
-        $json_input = file_get_contents('php://input');
-        $payments_from_app = json_decode($json_input, true);
-        $sync_results = [];
-
-        $stmt = $mysqli->prepare("INSERT INTO payments (local_id, account_id, user_id, amount, `timestamp`) VALUES (?, ?, ?, ?, ?)");
-        
-        if ($payments_from_app && $stmt) {
-            foreach ($payments_from_app as $payment) {
-                $datetime = date("Y-m-d H:i:s", $payment['timestamp'] / 1000);
-                $stmt->bind_param("iiiis", $payment['id'], $payment['accountId'], $payment['userId'], $payment['amount'], $datetime);
-                if ($stmt->execute()) {
-                    $sync_results[] = ['localId' => (int)$payment['id'], 'serverId' => (int)$mysqli->insert_id];
-                }
-            }
-            $stmt->close();
-        }
-        echo json_encode($sync_results);
-        break;
-
-    // --- NEW ACTIONS FOR DEVICE MANAGEMENT ---
-
-    case 'get_devices':
-        // NEW Action: Fetch all registered devices for your web view.
-        $result = $mysqli->query("SELECT device_id, connection_status, first_seen, last_seen FROM devices ORDER BY last_seen DESC;");
-        $devices = [];
-        if ($result) {
-            while ($row = $result->fetch_assoc()) {
-                $devices[] = $row;
-            }
-        }
-        echo json_encode($devices);
-        break;
-
-    case 'update_status':
-        // NEW Action: Update a device's connection status from your web view.
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['status' => 'error', 'error' => 'This action requires a POST request.']);
-            break;
-        }
-
-        $input = json_decode(file_get_contents('php://input'), true);
-        $deviceId = $input['deviceId'] ?? null;
-        $status = $input['connectionStatus'] ?? null;
-
-        if (!$deviceId || !in_array($status, ['allowed', 'denied'])) {
-            http_response_code(400);
-            echo json_encode(['status' => 'error', 'error' => 'Both deviceId and a valid connectionStatus (\'allowed\' or \'denied\') are required.']);
-            break;
-        }
-
-        $stmt = $mysqli->prepare("UPDATE devices SET connection_status = ? WHERE device_id = ?");
-        $stmt->bind_param("ss", $status, $deviceId);
-
-        if ($stmt->execute()) {
-            echo json_encode(['status' => 'success', 'message' => "Device $deviceId status updated to $status."]);
-        } else {
-            http_response_code(500);
-            echo json_encode(['status' => 'error', 'error' => 'Failed to update device status.']);
-        }
-        $stmt->close();
-        break;
-
-    case 'update_account_status':
-        // NEW Action: Update account active status from your web view.
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['status' => 'error', 'error' => 'This action requires a POST request.']);
-            break;
-        }
-
-        $input = json_decode(file_get_contents('php://input'), true);
-        $accountId = $input['accountId'] ?? null;
-        $isActive = $input['isActive'] ?? null;
-
-        if (!$accountId || !is_bool($isActive)) {
-            http_response_code(400);
-            echo json_encode(['status' => 'error', 'error' => 'Both accountId and isActive (boolean) are required.']);
-            break;
-        }
-
-        $stmt = $mysqli->prepare("UPDATE accounts SET is_active = ? WHERE id = ?");
-        $activeValue = $isActive ? 1 : 0;
-        $stmt->bind_param("ii", $activeValue, $accountId);
-
-        if ($stmt->execute()) {
-            echo json_encode(['status' => 'success', 'message' => "Account $accountId updated."]);
-        } else {
-            http_response_code(500);
-            echo json_encode(['status' => 'error', 'error' => 'Failed to update account status.']);
-        }
-        $stmt->close();
-        break;
-
     case 'login':
-        // Ensure the request is a POST request.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405); // Method Not Allowed
-            echo json_encode(['status' => 'error', 'message' => 'This action requires a POST request.']);
+            http_response_code(405);
+            echo json_encode(['status' => 'error', 'message' => 'POST request required.']);
             break;
         }
 
-        // Decode the JSON input from the app.
         $input = json_decode(file_get_contents('php://input'), true);
-
-        // Get the credentials from the input.
         $username = $input['username'] ?? null;
         $passwordHash = $input['passwordHash'] ?? null;
 
-        // Check that credentials were provided.
         if (!$username || !$passwordHash) {
-            http_response_code(400); // Bad Request
+            http_response_code(400);
             echo json_encode(['status' => 'error', 'message' => 'Username and passwordHash are required.']);
             break;
         }
 
-        // Look up the user in the database.
         $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
@@ -368,39 +130,78 @@ switch ($action) {
 
         if ($result->num_rows > 0) {
             $user = $result->fetch_assoc();
-            
-            // Compare the password hash from the app to the one in the database.
+            // Compare the app-provided hash with the one in the database
             if ($passwordHash === $user['password_hash']) {
-                // SUCCESS: The password is correct.
-                // Return a 'success' status and the user's ID.
-                echo json_encode([
-                    'status' => 'success', 
-                    'userId' => (int)$user['id']
-                ]);
+                // Success! Return the user's ID
+                echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
             } else {
-                // FAILURE: The password is incorrect.
-                // Return an 'error' status and a message.
+                // Wrong password
                 echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
             }
         } else {
-            // FAILURE: The user was not found.
-            // Return an 'error' status and a message.
+            // User not found
             echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
         }
         $stmt->close();
         break;
 
+    case 'sync_payments':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['status' => 'error', 'message' => 'POST request required.']);
+            break;
+        }
+
+        $payments = json_decode(file_get_contents('php://input'), true);
+        $sync_results = [];
+
+        $stmt = $mysqli->prepare("INSERT INTO payments (local_id, account_id, user_id, amount, timestamp, device_id) VALUES (?, ?, ?, ?, ?, ?)");
+
+        foreach ($payments as $p) {
+            $datetime = date("Y-m-d H:i:s", $p['timestamp'] / 1000);
+            $stmt->bind_param("iiiiss", $p['id'], $p['accountId'], $p['userId'], $p['amount'], $datetime, $p['deviceId']);
+            if ($stmt->execute()) {
+                // Return the mapping of the app's local ID to the new server ID
+                $sync_results[] = ['localId' => (int)$p['id'], 'serverId' => (int)$mysqli->insert_id];
+            }
+        }
+        $stmt->close();
+        echo json_encode($sync_results);
+        break;
+
+    case 'get_accounts':
+        $result = $mysqli->query("SELECT id, name, is_active AS active, sort_order AS sortOrder FROM accounts WHERE is_active = TRUE ORDER BY sort_order;");
+        $accounts = [];
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $row['id'] = (int)$row['id'];
+                $row['active'] = (bool)$row['active'];
+                $row['sortOrder'] = (int)$row['sortOrder'];
+                $accounts[] = $row;
+            }
+        }
+        echo json_encode($accounts);
+        break;
+
+    case 'get_users':
+        $result = $mysqli->query("SELECT id, username AS name FROM users;");
+        $users = [];
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $row['id'] = (int)$row['id'];
+                $users[] = $row;
+            }
+        }
+        echo json_encode($users);
+        break;
+
     default:
-        // UPDATED: Added new actions to the error message.
-        http_response_code(400); // Bad Request
-        echo json_encode([
-            'status' => 'error',
-            'error' => "Unknown or missing action parameter. Available actions: 'ping', 'get_accounts', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status', 'login'."
-        ]);
+        // Handle unknown or missing actions
+        http_response_code(400);
+        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'login', 'sync_payments', 'get_accounts', 'get_users'."]);
         break;
 }
 
-// 5. --- CLEANUP ---
-// Close the database connection.
+// --- 5. CLEANUP ---
 $mysqli->close();
 ?>
