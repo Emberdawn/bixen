@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS payments (
     account_id INT NOT NULL,
     user_id INT NOT NULL,
     amount INT NOT NULL,
-    timestamp DATETIME NOT NULL,
+    `timestamp` DATETIME NOT NULL,
     local_id BIGINT,
     FOREIGN KEY (account_id) REFERENCES accounts(id),
     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -134,12 +134,12 @@ switch ($action) {
     case 'get_payments':
         // NEW Action: Fetch payment entries with account and user information.
         $result = $mysqli->query(
-            "SELECT payments.server_id, payments.local_id, payments.amount, payments.timestamp, " .
+            "SELECT payments.server_id, payments.local_id, payments.amount, payments.`timestamp`, " .
             "accounts.name AS account_name, users.username AS user_name " .
             "FROM payments " .
             "JOIN accounts ON payments.account_id = accounts.id " .
             "JOIN users ON payments.user_id = users.id " .
-            "ORDER BY payments.timestamp DESC;"
+            "ORDER BY payments.`timestamp` DESC;"
         );
         $payments = [];
         if ($result) {
@@ -162,7 +162,7 @@ switch ($action) {
         $payments_from_app = json_decode($json_input, true);
         $sync_results = [];
 
-        $stmt = $mysqli->prepare("INSERT INTO payments (local_id, account_id, user_id, amount, timestamp) VALUES (?, ?, ?, ?, ?)");
+        $stmt = $mysqli->prepare("INSERT INTO payments (local_id, account_id, user_id, amount, `timestamp`) VALUES (?, ?, ?, ?, ?)");
         
         if ($payments_from_app && $stmt) {
             foreach ($payments_from_app as $payment) {
