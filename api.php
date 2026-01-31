@@ -339,26 +339,28 @@ switch ($action) {
         break;
 
     case 'login':
-        // Action: Authenticate a user.
+        // Ensure the request is a POST request.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            // Ensure the response contains the 'status' field.
+            http_response_code(405); // Method Not Allowed
             echo json_encode(['status' => 'error', 'message' => 'This action requires a POST request.']);
             break;
         }
 
+        // Decode the JSON input from the app.
         $input = json_decode(file_get_contents('php://input'), true);
+
+        // Get the credentials from the input.
         $username = $input['username'] ?? null;
         $passwordHash = $input['passwordHash'] ?? null;
 
+        // Check that credentials were provided.
         if (!$username || !$passwordHash) {
-            http_response_code(400);
-            // Ensure the response contains the 'status' field.
+            http_response_code(400); // Bad Request
             echo json_encode(['status' => 'error', 'message' => 'Username and passwordHash are required.']);
             break;
         }
 
-        // Use a prepared statement to prevent SQL injection.
+        // Look up the user in the database.
         $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
@@ -367,17 +369,22 @@ switch ($action) {
         if ($result->num_rows > 0) {
             $user = $result->fetch_assoc();
             
-            // The app sends a SHA-256 hash. We compare it to the one in the database.
-            // For better security, consider using password_hash() and password_verify() in PHP.
+            // Compare the password hash from the app to the one in the database.
             if ($passwordHash === $user['password_hash']) {
-                // Password is correct.
-                echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
+                // SUCCESS: The password is correct.
+                // Return a 'success' status and the user's ID.
+                echo json_encode([
+                    'status' => 'success', 
+                    'userId' => (int)$user['id']
+                ]);
             } else {
-                // Invalid password.
+                // FAILURE: The password is incorrect.
+                // Return an 'error' status and a message.
                 echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
             }
         } else {
-            // User not found.
+            // FAILURE: The user was not found.
+            // Return an 'error' status and a message.
             echo json_encode(['status' => 'error', 'message' => 'Invalid username or password.']);
         }
         $stmt->close();
