@@ -125,8 +125,18 @@ switch ($action) {
         }
 
         // LOGGING: remove - trace login calls.
-        $loginLogFile = __DIR__ . '/login.log';
-        error_log("login called for username={$username}\n", 3, $loginLogFile);
+        $mysqli->query(
+            "CREATE TABLE IF NOT EXISTS debug_logs (" .
+            "id INT AUTO_INCREMENT PRIMARY KEY, " .
+            "message TEXT NOT NULL, " .
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" .
+            ")"
+        );
+        $logMessage = "login called for username={$username}";
+        $logStmt = $mysqli->prepare("INSERT INTO debug_logs (message) VALUES (?)");
+        $logStmt->bind_param("s", $logMessage);
+        $logStmt->execute();
+        $logStmt->close();
 
         $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
         $stmt->bind_param("s", $username);
@@ -137,11 +147,11 @@ switch ($action) {
             $user = $result->fetch_assoc();
             $passwordMatches = password_verify($password, $user['password_hash']);
             // LOGGING: remove - trace password comparison result.
-            error_log(
-                "login password comparison for username={$username} result=" . ($passwordMatches ? 'match' : 'no_match') . "\n",
-                3,
-                $loginLogFile
-            );
+            $logMessage = "login password comparison for username={$username} result=" . ($passwordMatches ? 'match' : 'no_match');
+            $logStmt = $mysqli->prepare("INSERT INTO debug_logs (message) VALUES (?)");
+            $logStmt->bind_param("s", $logMessage);
+            $logStmt->execute();
+            $logStmt->close();
             if ($passwordMatches) {
                 echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
             } else {
