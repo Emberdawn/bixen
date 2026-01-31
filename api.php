@@ -125,7 +125,8 @@ switch ($action) {
         }
 
         // LOGGING: remove - trace login calls.
-        error_log("login called for username={$username}");
+        $loginLogFile = __DIR__ . '/login.log';
+        error_log("login called for username={$username}\n", 3, $loginLogFile);
 
         $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
         $stmt->bind_param("s", $username);
@@ -136,7 +137,11 @@ switch ($action) {
             $user = $result->fetch_assoc();
             $passwordMatches = password_verify($password, $user['password_hash']);
             // LOGGING: remove - trace password comparison result.
-            error_log("login password comparison for username={$username} result=" . ($passwordMatches ? 'match' : 'no_match'));
+            error_log(
+                "login password comparison for username={$username} result=" . ($passwordMatches ? 'match' : 'no_match') . "\n",
+                3,
+                $loginLogFile
+            );
             if ($passwordMatches) {
                 echo json_encode(['status' => 'success', 'userId' => (int)$user['id']]);
             } else {
