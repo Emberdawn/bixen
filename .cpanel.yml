@@ -1,5 +1,5 @@
----
 deployment:
   tasks:
     - export DEPLOYPATH=/home/emberpro/public_html/bixen
-    - /bin/cp -R * $DEPLOYPATH
+    - /bin/mkdir -p $DEPLOYPATH
+    - /bin/cp -R . $DEPLOYPATH
