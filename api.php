@@ -19,7 +19,8 @@ $createTablesSql = "
 CREATE TABLE IF NOT EXISTS accounts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INT NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -175,16 +176,19 @@ switch ($action) {
 
     case 'get_accounts':
         // Action: Fetch all accounts.
-        $result = $mysqli->query("SELECT id, name, is_active FROM accounts ORDER BY id ASC;");
+        $result = $mysqli->query(
+            "SELECT id, name, is_active AS active, sort_order AS sortOrder " .
+            "FROM accounts " .
+            "WHERE is_active = TRUE " .
+            "ORDER BY sort_order ASC;"
+        );
         $accounts = [];
         if ($result) {
             while ($row = $result->fetch_assoc()) {
-                $isActive = (bool)$row['is_active'];
-                $accounts[] = [
-                    'id' => (int)$row['id'],
-                    'name' => $row['name'],
-                    'isActive' => $isActive
-                ];
+                $row['id'] = (int)$row['id'];
+                $row['active'] = (bool)$row['active'];
+                $row['sortOrder'] = (int)$row['sortOrder'];
+                $accounts[] = $row;
             }
             $result->free();
         }
@@ -256,6 +260,7 @@ switch ($action) {
         $input = is_array($jsonInput) ? $jsonInput : [];
         $name = trim($input['name'] ?? '');
         $isActive = $input['isActive'] ?? true;
+        $sortOrder = $input['sortOrder'] ?? 0;
 
         if ($name === '') {
             http_response_code(400);
@@ -267,10 +272,15 @@ switch ($action) {
             echo json_encode(['error' => 'isActive must be a boolean.']);
             break;
         }
+        if (!is_int($sortOrder)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'sortOrder must be an integer.']);
+            break;
+        }
 
         $activeValue = $isActive ? 1 : 0;
-        $stmt = $mysqli->prepare("INSERT INTO accounts (name, is_active) VALUES (?, ?)");
-        $stmt->bind_param("si", $name, $activeValue);
+        $stmt = $mysqli->prepare("INSERT INTO accounts (name, is_active, sort_order) VALUES (?, ?, ?)");
+        $stmt->bind_param("sii", $name, $activeValue, $sortOrder);
         if ($stmt->execute()) {
             echo json_encode(['status' => 'success', 'id' => (int)$mysqli->insert_id]);
         } else {
