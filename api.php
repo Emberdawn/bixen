@@ -179,7 +179,12 @@ switch ($action) {
         $accounts = [];
         if ($result) {
             while ($row = $result->fetch_assoc()) {
-                $accounts[] = ['id' => (int)$row['id'], 'name' => $row['name'], 'active' => (bool)$row['is_active']];
+                $isActive = (bool)$row['is_active'];
+                $accounts[] = [
+                    'id' => (int)$row['id'],
+                    'name' => $row['name'],
+                    'isActive' => $isActive
+                ];
             }
             $result->free();
         }
