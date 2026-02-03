@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(50) NOT NULL DEFAULT 'user'
+    role VARCHAR(50) NOT NULL DEFAULT 'user',
+    active BOOLEAN NOT NULL DEFAULT TRUE
 );
 CREATE TABLE IF NOT EXISTS devices (
     device_id VARCHAR(255) PRIMARY KEY,
@@ -204,13 +205,14 @@ switch ($action) {
 
     case 'get_users':
         // Action: Fetch all users.
-        $result = $mysqli->query("SELECT id, username, role FROM users;");
+        $result = $mysqli->query("SELECT id, username, active, role FROM users ORDER BY username ASC;");
         $users = [];
         if ($result) {
             while ($row = $result->fetch_assoc()) {
                 $users[] = [
                     'id' => (int)$row['id'],
                     'name' => $row['username'],
+                    'active' => (bool)$row['active'],
                     'role' => $row['role']
                 ];
             }
