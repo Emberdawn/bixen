@@ -14,38 +14,36 @@ require_once 'db_config.php';
 // This block will run on every request, but the "IF NOT EXISTS" clause
 // means it will only create the tables on the very first run.
 
-// ADDED: A new table to store device information.
+// FIXED: A new table to store device information.
 $createTablesSql = "
 CREATE TABLE IF NOT EXISTS accounts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    sort_order INT DEFAULT 0,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INT NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(50) NOT NULL DEFAULT 'user',
+    role VARCHAR(50) NOT NULL DEFAULT 'cashier',
     active BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE TABLE IF NOT EXISTS payments (
+    server_id INT AUTO_INCREMENT PRIMARY KEY,
+    account_id INT NOT NULL,
+    user_id INT NOT NULL,
+    amount INT NOT NULL,
+    `timestamp` DATETIME NOT NULL,
+    local_id BIGINT,
+    FOREIGN KEY (account_id) REFERENCES accounts(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 CREATE TABLE IF NOT EXISTS devices (
     device_id VARCHAR(255) PRIMARY KEY,
     connection_status VARCHAR(50) NOT NULL DEFAULT 'allowed',
     first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS payments (
-    server_id INT AUTO_INCREMENT PRIMARY KEY,
-    local_id BIGINT,
-    account_id INT NOT NULL,
-    user_id INT NOT NULL,
-    amount INT NOT NULL,
-    timestamp DATETIME NOT NULL,
-    device_id VARCHAR(255),
-    FOREIGN KEY (account_id) REFERENCES accounts(id),
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );
 ";
 
@@ -149,7 +147,7 @@ switch ($action) {
             break;
         }
 
-        $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
+        $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE name = ?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -204,16 +202,16 @@ switch ($action) {
         break;
 
     case 'get_users':
-        // Action: Fetch all users.
-        $result = $mysqli->query("SELECT id, username, active, role FROM users ORDER BY username ASC;");
+        // FIXED: Action: Fetch all users.
+        $result = $mysqli->query("SELECT id, name, role, active FROM users;");
         $users = [];
         if ($result) {
             while ($row = $result->fetch_assoc()) {
                 $users[] = [
                     'id' => (int)$row['id'],
-                    'name' => $row['username'],
-                    'active' => (bool)$row['active'],
-                    'role' => $row['role']
+                    'name' => $row['name'],
+                    'role' => $row['role'],
+                    'active' => (bool)$row['active']
                 ];
             }
         }
@@ -246,7 +244,7 @@ switch ($action) {
         }
 
         $passwordHash = $normalizePasswordHash($password);
-        $stmt = $mysqli->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)");
+        $stmt = $mysqli->prepare("INSERT INTO users (name, password_hash, role) VALUES (?, ?, ?)");
         $stmt->bind_param("sss", $username, $passwordHash, $role);
 
         if ($stmt->execute()) {
@@ -327,10 +325,10 @@ switch ($action) {
 
         if ($password !== '') {
             $passwordHash = $normalizePasswordHash($password);
-            $stmt = $mysqli->prepare("UPDATE users SET username = ?, role = ?, password_hash = ? WHERE id = ?");
+            $stmt = $mysqli->prepare("UPDATE users SET name = ?, role = ?, password_hash = ? WHERE id = ?");
             $stmt->bind_param("sssi", $username, $role, $passwordHash, $userId);
         } else {
-            $stmt = $mysqli->prepare("UPDATE users SET username = ?, role = ? WHERE id = ?");
+            $stmt = $mysqli->prepare("UPDATE users SET name = ?, role = ? WHERE id = ?");
             $stmt->bind_param("ssi", $username, $role, $userId);
         }
 
@@ -347,7 +345,7 @@ switch ($action) {
         // NEW Action: Fetch payment entries with account and user information.
         $result = $mysqli->query(
             "SELECT payments.server_id, payments.local_id, payments.amount, payments.`timestamp`, " .
-            "accounts.name AS account_name, users.username AS user_name " .
+            "accounts.name AS account_name, users.name AS user_name " .
             "FROM payments " .
             "JOIN accounts ON payments.account_id = accounts.id " .
             "JOIN users ON payments.user_id = users.id " .
@@ -363,37 +361,24 @@ switch ($action) {
         break;
 
     case 'sync_payments':
-        // Action: Receive and save payment data from the app.
+        // FIXED: Action: Receive and save payment data from the app.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'The sync_payments action requires a POST request.']);
             break;
         }
-
+        
         $payments_from_app = is_array($jsonInput) ? $jsonInput : [];
         $sync_results = [];
 
-        $stmt = $mysqli->prepare(
-            "INSERT INTO payments (local_id, account_id, user_id, amount, `timestamp`) VALUES (?, ?, ?, ?, ?)"
-        );
-
+        $stmt = $mysqli->prepare("INSERT INTO payments (local_id, account_id, user_id, amount, `timestamp`) VALUES (?, ?, ?, ?, ?)");
+        
         if ($payments_from_app && $stmt) {
             foreach ($payments_from_app as $payment) {
-                // Use 'account_id' and 'user_id' to match the Kotlin data class
                 $datetime = date("Y-m-d H:i:s", $payment['timestamp'] / 1000);
-                $stmt->bind_param(
-                    "iiiis",
-                    $payment['id'],
-                    $payment['account_id'],
-                    $payment['user_id'],
-                    $payment['amount'],
-                    $datetime
-                );
+                $stmt->bind_param("iiiis", $payment['id'], $payment['account_id'], $payment['user_id'], $payment['amount'], $datetime);
                 if ($stmt->execute()) {
-                    $sync_results[] = [
-                        'localId' => (int)$payment['id'],
-                        'serverId' => (int)$mysqli->insert_id
-                    ];
+                    $sync_results[] = ['localId' => (int)$payment['id'], 'serverId' => (int)$mysqli->insert_id];
                 }
             }
             $stmt->close();
@@ -475,12 +460,6 @@ switch ($action) {
         }
         $stmt->close();
         break;
-
-    
-
-    
-
-    
 
     default:
         // UPDATED: Added new actions to the error message.
