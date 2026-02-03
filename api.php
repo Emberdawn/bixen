@@ -28,21 +28,23 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(50) NOT NULL DEFAULT 'user'
 );
-CREATE TABLE IF NOT EXISTS payments (
-    server_id INT AUTO_INCREMENT PRIMARY KEY,
-    account_id INT NOT NULL,
-    user_id INT NOT NULL,
-    amount INT NOT NULL,
-    `timestamp` DATETIME NOT NULL,
-    local_id BIGINT,
-    FOREIGN KEY (account_id) REFERENCES accounts(id),
-    FOREIGN KEY (user_id) REFERENCES users(id)
-);
 CREATE TABLE IF NOT EXISTS devices (
     device_id VARCHAR(255) PRIMARY KEY,
     connection_status VARCHAR(50) NOT NULL DEFAULT 'allowed',
     first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS payments (
+    server_id INT AUTO_INCREMENT PRIMARY KEY,
+    local_id BIGINT,
+    account_id INT NOT NULL,
+    user_id INT NOT NULL,
+    amount INT NOT NULL,
+    timestamp DATETIME NOT NULL,
+    device_id VARCHAR(255),
+    FOREIGN KEY (account_id) REFERENCES accounts(id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (device_id) REFERENCES devices(device_id)
 );
 ";
 
