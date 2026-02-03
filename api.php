@@ -15,46 +15,48 @@ require_once 'db_config.php';
 // means it will only create the tables on the very first run.
 
 // FIXED: 'users' table now uses 'name' and includes 'active' and a sensible 'role' default.
-$tableStatements = [
-    "CREATE TABLE IF NOT EXISTS accounts (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        is_active BOOLEAN NOT NULL DEFAULT TRUE,
-        sort_order INT NOT NULL DEFAULT 0
-    )",
-    "CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL UNIQUE,
-        password_hash VARCHAR(255) NOT NULL,
-        role VARCHAR(50) NOT NULL DEFAULT 'cashier',
-        active BOOLEAN NOT NULL DEFAULT TRUE
-    )",
-    "CREATE TABLE IF NOT EXISTS payments (
-        server_id INT AUTO_INCREMENT PRIMARY KEY,
-        account_id INT NOT NULL,
-        user_id INT NOT NULL,
-        amount INT NOT NULL,
-        `timestamp` DATETIME NOT NULL,
-        local_id BIGINT,
-        FOREIGN KEY (account_id) REFERENCES accounts(id),
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    )",
-    "CREATE TABLE IF NOT EXISTS devices (
-        device_id VARCHAR(255) PRIMARY KEY,
-        connection_status VARCHAR(50) NOT NULL DEFAULT 'allowed',
-        first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )",
-];
+$createTablesSql = "
+CREATE TABLE IF NOT EXISTS accounts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INT NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL DEFAULT 'cashier',
+    active BOOLEAN NOT NULL DEFAULT TRUE
+);
+CREATE TABLE IF NOT EXISTS payments (
+    server_id INT AUTO_INCREMENT PRIMARY KEY,
+    account_id INT NOT NULL,
+    user_id INT NOT NULL,
+    amount INT NOT NULL,
+    `timestamp` DATETIME NOT NULL,
+    local_id BIGINT,
+    FOREIGN KEY (account_id) REFERENCES accounts(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS devices (
+    device_id VARCHAR(255) PRIMARY KEY,
+    connection_status VARCHAR(50) NOT NULL DEFAULT 'allowed',
+    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+";
 
-foreach ($tableStatements as $statement) {
-    if (!$mysqli->query($statement)) {
-        http_response_code(500);
-        echo json_encode([
-            'error' => 'Failed to initialize database tables: ' . $mysqli->error,
-            'statement' => $statement
-        ]);
-        exit();
+// The mysqli_multi_query function allows us to execute all CREATE TABLE statements at once.
+if (!$mysqli->multi_query($createTablesSql)) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Failed to initialize database tables: ' . $mysqli->error]);
+    exit();
+}
+// We need to clear the results of the multi-query before proceeding.
+while ($mysqli->next_result()) {
+    if ($result = $mysqli->store_result()) {
+        $result->free();
     }
 }
 
