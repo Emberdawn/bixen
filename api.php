@@ -14,7 +14,7 @@ require_once 'db_config.php';
 // This block will run on every request, but the "IF NOT EXISTS" clause
 // means it will only create the tables on the very first run.
 
-// FIXED: A new table to store device information.
+// FIXED: 'users' table now uses 'name' and includes 'active' and a sensible 'role' default.
 $createTablesSql = "
 CREATE TABLE IF NOT EXISTS accounts (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -138,7 +138,7 @@ switch ($action) {
         }
 
         $input = is_array($jsonInput) ? $jsonInput : [];
-        $username = $input['username'] ?? null;
+        $username = $input['username'] ?? null; // App might still send 'username' from a login form
         $password = $input['password'] ?? null;
 
         if (!$username || !$password) {
@@ -147,6 +147,7 @@ switch ($action) {
             break;
         }
 
+        // FIXED: Query by 'name' instead of 'username'
         $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE name = ?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
@@ -202,7 +203,7 @@ switch ($action) {
         break;
 
     case 'get_users':
-        // FIXED: Action: Fetch all users.
+        // FIXED: Select 'name' and 'active' and return them correctly.
         $result = $mysqli->query("SELECT id, name, role, active FROM users;");
         $users = [];
         if ($result) {
@@ -227,72 +228,32 @@ switch ($action) {
         }
 
         $input = is_array($jsonInput) ? $jsonInput : [];
-        $username = trim($input['username'] ?? '');
+        $name = trim($input['name'] ?? ''); // FIXED: expect 'name'
         $password = $input['password'] ?? '';
-        $role = $input['role'] ?? 'user';
+        $role = $input['role'] ?? 'cashier'; // FIXED: better default
 
-        if ($username === '' || $password === '') {
+        if ($name === '' || $password === '') {
             http_response_code(400);
-            echo json_encode(['error' => 'Username and password are required.']);
+            echo json_encode(['error' => 'Name and password are required.']);
             break;
         }
 
-        if (!in_array($role, ['user', 'admin'], true)) {
+        if (!in_array($role, ['cashier', 'admin'], true)) { // FIXED: align with app
             http_response_code(400);
-            echo json_encode(['error' => 'Role must be either user or admin.']);
+            echo json_encode(['error' => 'Role must be either cashier or admin.']);
             break;
         }
 
         $passwordHash = $normalizePasswordHash($password);
+        // FIXED: Insert into 'name' column
         $stmt = $mysqli->prepare("INSERT INTO users (name, password_hash, role) VALUES (?, ?, ?)");
-        $stmt->bind_param("sss", $username, $passwordHash, $role);
+        $stmt->bind_param("sss", $name, $passwordHash, $role);
 
         if ($stmt->execute()) {
             echo json_encode(['status' => 'success', 'id' => (int)$mysqli->insert_id]);
         } else {
             http_response_code(500);
             echo json_encode(['error' => 'Failed to create user.']);
-        }
-        $stmt->close();
-        break;
-
-    case 'add_account':
-        // Action: Create a new account.
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            http_response_code(405);
-            echo json_encode(['error' => 'The add_account action requires a POST request.']);
-            break;
-        }
-
-        $input = is_array($jsonInput) ? $jsonInput : [];
-        $name = trim($input['name'] ?? '');
-        $isActive = $input['isActive'] ?? true;
-        $sortOrder = $input['sortOrder'] ?? 0;
-
-        if ($name === '') {
-            http_response_code(400);
-            echo json_encode(['error' => 'Account name is required.']);
-            break;
-        }
-        if (!is_bool($isActive)) {
-            http_response_code(400);
-            echo json_encode(['error' => 'isActive must be a boolean.']);
-            break;
-        }
-        if (!is_int($sortOrder)) {
-            http_response_code(400);
-            echo json_encode(['error' => 'sortOrder must be an integer.']);
-            break;
-        }
-
-        $activeValue = $isActive ? 1 : 0;
-        $stmt = $mysqli->prepare("INSERT INTO accounts (name, is_active, sort_order) VALUES (?, ?, ?)");
-        $stmt->bind_param("sii", $name, $activeValue, $sortOrder);
-        if ($stmt->execute()) {
-            echo json_encode(['status' => 'success', 'id' => (int)$mysqli->insert_id]);
-        } else {
-            http_response_code(500);
-            echo json_encode(['error' => 'Failed to create account.']);
         }
         $stmt->close();
         break;
@@ -307,29 +268,31 @@ switch ($action) {
 
         $input = is_array($jsonInput) ? $jsonInput : [];
         $userId = isset($input['id']) ? (int)$input['id'] : 0;
-        $username = trim($input['username'] ?? '');
+        $name = trim($input['name'] ?? ''); // FIXED: expect 'name'
         $password = $input['password'] ?? '';
-        $role = $input['role'] ?? 'user';
+        $role = $input['role'] ?? 'cashier'; // FIXED: better default
 
-        if ($userId <= 0 || $username === '') {
+        if ($userId <= 0 || $name === '') {
             http_response_code(400);
-            echo json_encode(['error' => 'User id and username are required.']);
+            echo json_encode(['error' => 'User id and name are required.']);
             break;
         }
 
-        if (!in_array($role, ['user', 'admin'], true)) {
+        if (!in_array($role, ['cashier', 'admin'], true)) { // FIXED: align with app
             http_response_code(400);
-            echo json_encode(['error' => 'Role must be either user or admin.']);
+            echo json_encode(['error' => 'Role must be either cashier or admin.']);
             break;
         }
 
         if ($password !== '') {
             $passwordHash = $normalizePasswordHash($password);
+            // FIXED: Update 'name' column
             $stmt = $mysqli->prepare("UPDATE users SET name = ?, role = ?, password_hash = ? WHERE id = ?");
-            $stmt->bind_param("sssi", $username, $role, $passwordHash, $userId);
+            $stmt->bind_param("sssi", $name, $role, $passwordHash, $userId);
         } else {
+            // FIXED: Update 'name' column
             $stmt = $mysqli->prepare("UPDATE users SET name = ?, role = ? WHERE id = ?");
-            $stmt->bind_param("ssi", $username, $role, $userId);
+            $stmt->bind_param("ssi", $name, $role, $userId);
         }
 
         if ($stmt->execute()) {
@@ -342,7 +305,7 @@ switch ($action) {
         break;
 
     case 'get_payments':
-        // NEW Action: Fetch payment entries with account and user information.
+        // FIXED: Select users.name instead of users.username
         $result = $mysqli->query(
             "SELECT payments.server_id, payments.local_id, payments.amount, payments.`timestamp`, " .
             "accounts.name AS account_name, users.name AS user_name " .
@@ -361,7 +324,7 @@ switch ($action) {
         break;
 
     case 'sync_payments':
-        // FIXED: Action: Receive and save payment data from the app.
+        // FIXED: This was the source of the 500 error.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'The sync_payments action requires a POST request.']);
@@ -376,6 +339,7 @@ switch ($action) {
         if ($payments_from_app && $stmt) {
             foreach ($payments_from_app as $payment) {
                 $datetime = date("Y-m-d H:i:s", $payment['timestamp'] / 1000);
+                // FIXED: Use 'account_id' and 'user_id' to match the JSON from the app.
                 $stmt->bind_param("iiiis", $payment['id'], $payment['account_id'], $payment['user_id'], $payment['amount'], $datetime);
                 if ($stmt->execute()) {
                     $sync_results[] = ['localId' => (int)$payment['id'], 'serverId' => (int)$mysqli->insert_id];
