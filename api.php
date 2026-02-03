@@ -174,6 +174,7 @@ switch ($action) {
         $stmt->close();
         break;
 
+    /*
     case 'get_accounts':
         // Action: Fetch all accounts.
         $accounts = [];
@@ -198,6 +199,29 @@ switch ($action) {
         }
 
         echo json_encode($accounts);
+        break;
+    */
+    case 'get_accounts':
+        // --- TEMPORARY DEBUGGING CODE ---
+        // This bypasses the database and sends a hard-coded JSON array.
+        $hardcoded_accounts = [
+            [
+                'id' => 101,
+                'name' => 'Test Coffee',
+                'active' => true,
+                'sortOrder' => 1
+            ],
+            [
+                'id' => 102,
+                'name' => 'Test Soda',
+                'active' => true,
+                'sortOrder' => 2
+            ]
+        ];
+
+        // Always set the header and echo the test data.
+        header('Content-Type: application/json');
+        echo json_encode($hardcoded_accounts);
         break;
 
     case 'get_users':
