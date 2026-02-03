@@ -375,9 +375,9 @@ switch ($action) {
         
         if ($payments_from_app && $stmt) {
             foreach ($payments_from_app as $payment) {
-                // Use 'account_id' and 'user_id' to match the Kotlin data class
+                // Use 'accountId' and 'userId' to match the Kotlin data class
                 $datetime = date("Y-m-d H:i:s", $payment['timestamp'] / 1000);
-                $stmt->bind_param("iiiis", $payment['id'], $payment['account_id'], $payment['user_id'], $payment['amount'], $datetime);
+                $stmt->bind_param("iiiis", $payment['id'], $payment['accountId'], $payment['userId'], $payment['amount'], $datetime);
                 if ($stmt->execute()) {
                     $sync_results[] = ['localId' => (int)$payment['id'], 'serverId' => (int)$mysqli->insert_id];
                 }
