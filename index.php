@@ -450,7 +450,7 @@
         const navButtons = document.querySelectorAll('nav button');
 
         const api = (action, options = {}) =>
-            fetch(`api.php?action=${action}`, {
+            fetch(`backend.php?action=${action}`, {
                 headers: { 'Content-Type': 'application/json' },
                 ...options,
             }).then(async (response) => {
@@ -596,7 +596,7 @@
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${user.id}</td>
-                    <td>${user.name}</td>
+                    <td>${user.username}</td>
                     <td>${user.role ?? 'user'}</td>
                     <td>
                         <button type="button" class="secondary" data-edit-user="${user.id}">Edit</button>
@@ -665,7 +665,7 @@
                 const usernameInput = editUserForm?.querySelector('input[name="username"]');
                 const roleSelect = editUserForm?.querySelector('select[name="role"]');
                 if (idInput) idInput.value = user.id;
-                if (usernameInput) usernameInput.value = user.name ?? '';
+                if (usernameInput) usernameInput.value = user.username ?? '';
                 if (roleSelect) roleSelect.value = user.role ?? 'user';
                 usernameInput?.focus();
             } else if (!shouldOpen) {
