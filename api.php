@@ -176,22 +176,27 @@ switch ($action) {
 
     case 'get_accounts':
         // Action: Fetch all accounts.
-        $result = $mysqli->query(
-            "SELECT id, name, is_active AS active, sort_order AS sortOrder " .
+        $accounts = [];
+
+        $sql = "SELECT id, name, is_active AS active, sort_order AS sortOrder " .
             "FROM accounts " .
             "WHERE is_active = TRUE " .
-            "ORDER BY sort_order ASC;"
-        );
-        $accounts = [];
-        if ($result) {
-            while ($row = $result->fetch_assoc()) {
-                $row['id'] = (int)$row['id'];
-                $row['active'] = (bool)$row['active'];
-                $row['sortOrder'] = (int)$row['sortOrder'];
-                $accounts[] = $row;
-            }
-            $result->free();
+            "ORDER BY sort_order ASC";
+        $result = $mysqli->query($sql);
+
+        if (!$result) {
+            http_response_code(500);
+            echo json_encode(['error' => 'Database query failed.']);
+            break;
         }
+
+        while ($row = $result->fetch_assoc()) {
+            $row['id'] = (int)$row['id'];
+            $row['active'] = (bool)$row['active'];
+            $row['sortOrder'] = (int)$row['sortOrder'];
+            $accounts[] = $row;
+        }
+
         echo json_encode($accounts);
         break;
 
