@@ -228,9 +228,12 @@ switch ($action) {
         }
 
         $input = is_array($jsonInput) ? $jsonInput : [];
-        $name = trim($input['name'] ?? ''); // FIXED: expect 'name'
+        $name = trim($input['name'] ?? $input['username'] ?? ''); // accept legacy "username"
         $password = $input['password'] ?? '';
         $role = $input['role'] ?? 'cashier'; // FIXED: better default
+        if ($role === 'user') {
+            $role = 'cashier';
+        }
 
         if ($name === '' || $password === '') {
             http_response_code(400);
@@ -268,9 +271,12 @@ switch ($action) {
 
         $input = is_array($jsonInput) ? $jsonInput : [];
         $userId = isset($input['id']) ? (int)$input['id'] : 0;
-        $name = trim($input['name'] ?? ''); // FIXED: expect 'name'
+        $name = trim($input['name'] ?? $input['username'] ?? ''); // accept legacy "username"
         $password = $input['password'] ?? '';
         $role = $input['role'] ?? 'cashier'; // FIXED: better default
+        if ($role === 'user') {
+            $role = 'cashier';
+        }
 
         if ($userId <= 0 || $name === '') {
             http_response_code(400);
