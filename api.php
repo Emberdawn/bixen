@@ -361,31 +361,43 @@ switch ($action) {
         break;
 
     case 'sync_payments':
-    // Action: Receive and save payment data from the app.
-    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-        http_response_code(405);
-        echo json_encode(['error' => 'The sync_payments action requires a POST request.']);
-        break;
-    }
-    
-    $payments_from_app = is_array($jsonInput) ? $jsonInput : [];
-    $sync_results = [];
-
-    $stmt = $mysqli->prepare("INSERT INTO payments (local_id, account_id, user_id, amount, `timestamp`) VALUES (?, ?, ?, ?, ?)");
-    
-    if ($payments_from_app && $stmt) {
-        foreach ($payments_from_app as $payment) {
-            // Use 'accountId' and 'userId' to match the Kotlin data class
-            $datetime = date("Y-m-d H:i:s", $payment['timestamp'] / 1000);
-            $stmt->bind_param("iiiis", $payment['id'], $payment['accountId'], $payment['userId'], $payment['amount'], $datetime);
-            if ($stmt->execute()) {
-                $sync_results[] = ['localId' => (int)$payment['id'], 'serverId' => (int)$mysqli->insert_id];
-            }
+        // Action: Receive and save payment data from the app.
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'The sync_payments action requires a POST request.']);
+            break;
         }
-        $stmt->close();
-    }
-    echo json_encode($sync_results);
-    break;
+
+        $payments_from_app = is_array($jsonInput) ? $jsonInput : [];
+        $sync_results = [];
+
+        $stmt = $mysqli->prepare(
+            "INSERT INTO payments (local_id, account_id, user_id, amount, `timestamp`) VALUES (?, ?, ?, ?, ?)"
+        );
+
+        if ($payments_from_app && $stmt) {
+            foreach ($payments_from_app as $payment) {
+                // Use 'account_id' and 'user_id' to match the Kotlin data class
+                $datetime = date("Y-m-d H:i:s", $payment['timestamp'] / 1000);
+                $stmt->bind_param(
+                    "iiiis",
+                    $payment['id'],
+                    $payment['account_id'],
+                    $payment['user_id'],
+                    $payment['amount'],
+                    $datetime
+                );
+                if ($stmt->execute()) {
+                    $sync_results[] = [
+                        'localId' => (int)$payment['id'],
+                        'serverId' => (int)$mysqli->insert_id
+                    ];
+                }
+            }
+            $stmt->close();
+        }
+        echo json_encode($sync_results);
+        break;
 
     // --- NEW ACTIONS FOR DEVICE MANAGEMENT ---
 
