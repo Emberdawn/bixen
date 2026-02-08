@@ -14,7 +14,7 @@ require_once 'db_config.php';
 // This block will run on every request, but the "IF NOT EXISTS" clause
 // means it will only create the tables on the very first run.
 
-// FIXED: 'users' table now uses 'name' and includes 'active' and a sensible 'role' default.
+// FIXED: 'users' table now uses 'username' and matches the expected role default.
 $tableStatements = [
     "CREATE TABLE IF NOT EXISTS accounts (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -24,10 +24,9 @@ $tableStatements = [
     )",
     "CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL UNIQUE,
+        username VARCHAR(255) NOT NULL UNIQUE,
         password_hash VARCHAR(255) NOT NULL,
-        role VARCHAR(50) NOT NULL DEFAULT 'cashier',
-        active BOOLEAN NOT NULL DEFAULT TRUE
+        role VARCHAR(50) NOT NULL DEFAULT 'user'
     )",
     "CREATE TABLE IF NOT EXISTS payments (
         server_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -145,8 +144,8 @@ switch ($action) {
             break;
         }
 
-        // FIXED: Query by 'name' instead of 'username'
-        $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE name = ?");
+        // FIXED: Query by 'username'.
+        $stmt = $mysqli->prepare("SELECT id, password_hash FROM users WHERE username = ?");
         $stmt->bind_param("s", $username);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -201,16 +200,15 @@ switch ($action) {
         break;
 
     case 'get_users':
-        // FIXED: Select 'name' and 'active' and return them correctly.
-        $result = $mysqli->query("SELECT id, name, role, active FROM users;");
+        // FIXED: Select 'username' and return it correctly.
+        $result = $mysqli->query("SELECT id, username, role FROM users;");
         $users = [];
         if ($result) {
             while ($row = $result->fetch_assoc()) {
                 $users[] = [
                     'id' => (int)$row['id'],
-                    'name' => $row['name'],
+                    'username' => $row['username'],
                     'role' => $row['role'],
-                    'active' => (bool)$row['active']
                 ];
             }
         }
@@ -226,16 +224,16 @@ switch ($action) {
         }
 
         $input = is_array($jsonInput) ? $jsonInput : [];
-        $name = trim($input['name'] ?? $input['username'] ?? ''); // accept legacy "username"
+        $username = trim($input['username'] ?? $input['name'] ?? ''); // accept legacy "name"
         $password = $input['password'] ?? '';
         $role = $input['role'] ?? 'cashier'; // FIXED: better default
         if ($role === 'user') {
             $role = 'cashier';
         }
 
-        if ($name === '' || $password === '') {
+        if ($username === '' || $password === '') {
             http_response_code(400);
-            echo json_encode(['error' => 'Name and password are required.']);
+            echo json_encode(['error' => 'Username and password are required.']);
             break;
         }
 
@@ -246,9 +244,9 @@ switch ($action) {
         }
 
         $passwordHash = $normalizePasswordHash($password);
-        // FIXED: Insert into 'name' column
-        $stmt = $mysqli->prepare("INSERT INTO users (name, password_hash, role) VALUES (?, ?, ?)");
-        $stmt->bind_param("sss", $name, $passwordHash, $role);
+        // FIXED: Insert into 'username' column
+        $stmt = $mysqli->prepare("INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)");
+        $stmt->bind_param("sss", $username, $passwordHash, $role);
 
         if ($stmt->execute()) {
             echo json_encode(['status' => 'success', 'id' => (int)$mysqli->insert_id]);
@@ -269,16 +267,16 @@ switch ($action) {
 
         $input = is_array($jsonInput) ? $jsonInput : [];
         $userId = isset($input['id']) ? (int)$input['id'] : 0;
-        $name = trim($input['name'] ?? $input['username'] ?? ''); // accept legacy "username"
+        $username = trim($input['username'] ?? $input['name'] ?? ''); // accept legacy "name"
         $password = $input['password'] ?? '';
         $role = $input['role'] ?? 'cashier'; // FIXED: better default
         if ($role === 'user') {
             $role = 'cashier';
         }
 
-        if ($userId <= 0 || $name === '') {
+        if ($userId <= 0 || $username === '') {
             http_response_code(400);
-            echo json_encode(['error' => 'User id and name are required.']);
+            echo json_encode(['error' => 'User id and username are required.']);
             break;
         }
 
@@ -290,13 +288,13 @@ switch ($action) {
 
         if ($password !== '') {
             $passwordHash = $normalizePasswordHash($password);
-            // FIXED: Update 'name' column
-            $stmt = $mysqli->prepare("UPDATE users SET name = ?, role = ?, password_hash = ? WHERE id = ?");
-            $stmt->bind_param("sssi", $name, $role, $passwordHash, $userId);
+            // FIXED: Update 'username' column
+            $stmt = $mysqli->prepare("UPDATE users SET username = ?, role = ?, password_hash = ? WHERE id = ?");
+            $stmt->bind_param("sssi", $username, $role, $passwordHash, $userId);
         } else {
-            // FIXED: Update 'name' column
-            $stmt = $mysqli->prepare("UPDATE users SET name = ?, role = ? WHERE id = ?");
-            $stmt->bind_param("ssi", $name, $role, $userId);
+            // FIXED: Update 'username' column
+            $stmt = $mysqli->prepare("UPDATE users SET username = ?, role = ? WHERE id = ?");
+            $stmt->bind_param("ssi", $username, $role, $userId);
         }
 
         if ($stmt->execute()) {
@@ -309,10 +307,10 @@ switch ($action) {
         break;
 
     case 'get_payments':
-        // FIXED: Select users.name instead of users.username
+        // FIXED: Select users.username instead of users.name
         $result = $mysqli->query(
             "SELECT payments.server_id, payments.local_id, payments.amount, payments.`timestamp`, " .
-            "accounts.name AS account_name, users.name AS user_name " .
+            "accounts.name AS account_name, users.username AS user_name " .
             "FROM payments " .
             "JOIN accounts ON payments.account_id = accounts.id " .
             "JOIN users ON payments.user_id = users.id " .
