@@ -322,7 +322,16 @@ switch ($action) {
                 $payments[] = $row;
             }
         }
-        echo json_encode($payments);
+        $paymentsJson = json_encode($payments);
+
+        // Save the get_payments reply to a .txt file for debugging/auditing.
+        $logDir = __DIR__ . '/logs';
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0775, true);
+        }
+        file_put_contents($logDir . '/get_payments_reply.txt', $paymentsJson . PHP_EOL);
+
+        echo $paymentsJson;
         break;
 
     case 'sync_payments':
