@@ -354,12 +354,12 @@ switch ($action) {
                     continue;
                 }
 
-                // Accept snake_case and camelCase to avoid crashing on mixed client versions.
-                $localId = $payment['id'] ?? $payment['local_id'] ?? null;
-                $accountId = $payment['account_id'] ?? $payment['accountId'] ?? null;
-                $userId = $payment['user_id'] ?? $payment['userId'] ?? null;
+                // Accept multiple key variants to avoid crashing on mixed client versions.
+                $localId = $payment['id'] ?? $payment['local_id'] ?? $payment['localId'] ?? null;
+                $accountId = $payment['account_id'] ?? $payment['accountId'] ?? $payment['account'] ?? null;
+                $userId = $payment['user_id'] ?? $payment['userId'] ?? $payment['user'] ?? null;
                 $amount = $payment['amount'] ?? null;
-                $rawTimestamp = $payment['timestamp'] ?? null;
+                $rawTimestamp = $payment['timestamp'] ?? $payment['time'] ?? $payment['created_at'] ?? null;
 
                 if ($localId === null || $accountId === null || $userId === null || $amount === null || $rawTimestamp === null) {
                     $sync_results[] = [
@@ -370,13 +370,33 @@ switch ($action) {
                     continue;
                 }
 
-                // Ensure numeric types and convert milliseconds to seconds explicitly to prevent float->int deprecation warnings.
+                // Normalize and validate numeric IDs up-front to avoid NULL inserts.
+                if (!is_numeric($localId) || !is_numeric($accountId) || !is_numeric($userId) || !is_numeric($amount) || !is_numeric($rawTimestamp)) {
+                    $sync_results[] = [
+                        'localId' => is_numeric($localId) ? (int)$localId : null,
+                        'status' => 'error',
+                        'message' => 'One or more required fields are not numeric.'
+                    ];
+                    continue;
+                }
+
                 $localId = (int)$localId;
                 $accountId = (int)$accountId;
                 $userId = (int)$userId;
-                $amount = (int)$amount;
-                $timestampMs = (int)round((float)$rawTimestamp);
-                $timestampSeconds = intdiv($timestampMs, 1000);
+                $amount = (int)round((float)$amount);
+
+                if ($accountId <= 0 || $userId <= 0) {
+                    $sync_results[] = [
+                        'localId' => $localId,
+                        'status' => 'error',
+                        'message' => 'account_id/accountId and user_id/userId must be positive integers.'
+                    ];
+                    continue;
+                }
+
+                // App clients may send timestamp either in seconds (possibly with decimals) or milliseconds.
+                $timestampValue = (float)$rawTimestamp;
+                $timestampSeconds = $timestampValue > 9999999999 ? (int)floor($timestampValue / 1000) : (int)floor($timestampValue);
                 $datetime = date("Y-m-d H:i:s", $timestampSeconds);
 
                 $stmt->bind_param("iiiis", $localId, $accountId, $userId, $amount, $datetime);
