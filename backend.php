@@ -314,29 +314,126 @@ switch ($action) {
         break;
 
     case 'sync_payments':
-        // FIXED: This was the source of the 500 error.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
             http_response_code(405);
             echo json_encode(['error' => 'The sync_payments action requires a POST request.']);
             break;
         }
-        
+
+        $logDir = __DIR__ . '/logs';
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0775, true);
+        }
+
         $payments_from_app = is_array($jsonInput) ? $jsonInput : [];
+        if ($payments_from_app && array_keys($payments_from_app) !== range(0, count($payments_from_app) - 1)) {
+            // Accept a single payment object by normalizing it to a one-item list.
+            $payments_from_app = [$payments_from_app];
+        }
+
+        $requestSnapshot = [
+            'logged_at' => date('c'),
+            'method' => $_SERVER['REQUEST_METHOD'] ?? null,
+            'action' => $action,
+            'payment_count' => is_array($payments_from_app) ? count($payments_from_app) : 0,
+            'json_input' => $jsonInput,
+            'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? null,
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+        ];
+
+        file_put_contents(
+            $logDir . '/sync_payments_request.txt',
+            json_encode($requestSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
+            FILE_APPEND
+        );
+
         $sync_results = [];
 
         $stmt = $mysqli->prepare("INSERT INTO payments (local_id, account_id, user_id, amount, `timestamp`) VALUES (?, ?, ?, ?, ?)");
-        
+
         if ($payments_from_app && $stmt) {
             foreach ($payments_from_app as $payment) {
-                $datetime = date("Y-m-d H:i:s", $payment['timestamp'] / 1000);
-                // FIXED: Use 'account_id' and 'user_id' to match the JSON from the app.
-                $stmt->bind_param("iiiis", $payment['id'], $payment['account_id'], $payment['user_id'], $payment['amount'], $datetime);
-                if ($stmt->execute()) {
-                    $sync_results[] = ['localId' => (int)$payment['id'], 'serverId' => (int)$mysqli->insert_id];
+                if (!is_array($payment)) {
+                    $sync_results[] = ['status' => 'error', 'message' => 'Invalid payment payload.'];
+                    continue;
+                }
+
+                // Accept multiple key variants to avoid crashing on mixed client versions.
+                $localId = $payment['id'] ?? $payment['local_id'] ?? $payment['localId'] ?? null;
+                $accountId = $payment['account_id'] ?? $payment['accountId'] ?? $payment['account'] ?? null;
+                $userId = $payment['user_id'] ?? $payment['userId'] ?? $payment['user'] ?? null;
+                $amount = $payment['amount'] ?? null;
+                $rawTimestamp = $payment['timestamp'] ?? $payment['time'] ?? $payment['created_at'] ?? null;
+
+                if ($localId === null || $accountId === null || $userId === null || $amount === null || $rawTimestamp === null) {
+                    $sync_results[] = [
+                        'localId' => $localId !== null ? (int)$localId : null,
+                        'status' => 'error',
+                        'message' => 'Missing required fields: id/local_id, account_id/accountId, user_id/userId, amount, timestamp.'
+                    ];
+                    continue;
+                }
+
+                if (!is_numeric($localId) || !is_numeric($accountId) || !is_numeric($userId) || !is_numeric($amount) || !is_numeric($rawTimestamp)) {
+                    $sync_results[] = [
+                        'localId' => is_numeric($localId) ? (int)$localId : null,
+                        'status' => 'error',
+                        'message' => 'One or more required fields are not numeric.'
+                    ];
+                    continue;
+                }
+
+                $localId = (int)$localId;
+                $accountId = (int)$accountId;
+                $userId = (int)$userId;
+                $amount = (int)round((float)$amount);
+
+                if ($accountId <= 0 || $userId <= 0) {
+                    $sync_results[] = [
+                        'localId' => $localId,
+                        'status' => 'error',
+                        'message' => 'account_id/accountId and user_id/userId must be positive integers.'
+                    ];
+                    continue;
+                }
+
+                // App clients may send timestamp either in seconds (possibly with decimals) or milliseconds.
+                $timestampValue = (float)$rawTimestamp;
+                $timestampSeconds = $timestampValue > 9999999999 ? (int)floor($timestampValue / 1000) : (int)floor($timestampValue);
+                $datetime = date("Y-m-d H:i:s", $timestampSeconds);
+
+                $stmt->bind_param("iiiis", $localId, $accountId, $userId, $amount, $datetime);
+                try {
+                    if ($stmt->execute()) {
+                        $sync_results[] = [
+                            'localId' => $localId,
+                            'serverId' => (int)$mysqli->insert_id,
+                            'status' => 'success'
+                        ];
+                    } else {
+                        $sync_results[] = [
+                            'localId' => $localId,
+                            'status' => 'error',
+                            'message' => $stmt->error
+                        ];
+                    }
+                } catch (mysqli_sql_exception $e) {
+                    $sync_results[] = [
+                        'localId' => $localId,
+                        'status' => 'error',
+                        'message' => $e->getMessage()
+                    ];
                 }
             }
             $stmt->close();
         }
+
+        file_put_contents(
+            $logDir . '/sync_payments_reply.txt',
+            json_encode($sync_results, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
+            FILE_APPEND
+        );
+
         echo json_encode($sync_results);
         break;
 

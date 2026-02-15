@@ -319,7 +319,7 @@ switch ($action) {
             'action' => $action,
             'query' => $_GET,
             'json_input' => $jsonInput,
-            'raw_input' => $rawInput,
+            'raw_input' => $rawBody,
             'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? null,
             'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
         ];
