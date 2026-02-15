@@ -349,11 +349,49 @@ switch ($action) {
         
         if ($payments_from_app && $stmt) {
             foreach ($payments_from_app as $payment) {
-                $datetime = date("Y-m-d H:i:s", $payment['timestamp'] / 1000);
-                // FIXED: Use 'account_id' and 'user_id' to match the JSON from the app.
-                $stmt->bind_param("iiiis", $payment['id'], $payment['account_id'], $payment['user_id'], $payment['amount'], $datetime);
+                if (!is_array($payment)) {
+                    $sync_results[] = ['status' => 'error', 'message' => 'Invalid payment payload.'];
+                    continue;
+                }
+
+                // Accept snake_case and camelCase to avoid crashing on mixed client versions.
+                $localId = $payment['id'] ?? $payment['local_id'] ?? null;
+                $accountId = $payment['account_id'] ?? $payment['accountId'] ?? null;
+                $userId = $payment['user_id'] ?? $payment['userId'] ?? null;
+                $amount = $payment['amount'] ?? null;
+                $rawTimestamp = $payment['timestamp'] ?? null;
+
+                if ($localId === null || $accountId === null || $userId === null || $amount === null || $rawTimestamp === null) {
+                    $sync_results[] = [
+                        'localId' => $localId !== null ? (int)$localId : null,
+                        'status' => 'error',
+                        'message' => 'Missing required fields: id/local_id, account_id/accountId, user_id/userId, amount, timestamp.'
+                    ];
+                    continue;
+                }
+
+                // Ensure numeric types and convert milliseconds to seconds explicitly to prevent float->int deprecation warnings.
+                $localId = (int)$localId;
+                $accountId = (int)$accountId;
+                $userId = (int)$userId;
+                $amount = (int)$amount;
+                $timestampMs = (int)round((float)$rawTimestamp);
+                $timestampSeconds = intdiv($timestampMs, 1000);
+                $datetime = date("Y-m-d H:i:s", $timestampSeconds);
+
+                $stmt->bind_param("iiiis", $localId, $accountId, $userId, $amount, $datetime);
                 if ($stmt->execute()) {
-                    $sync_results[] = ['localId' => (int)$payment['id'], 'serverId' => (int)$mysqli->insert_id];
+                    $sync_results[] = [
+                        'localId' => $localId,
+                        'serverId' => (int)$mysqli->insert_id,
+                        'status' => 'success'
+                    ];
+                } else {
+                    $sync_results[] = [
+                        'localId' => $localId,
+                        'status' => 'error',
+                        'message' => $stmt->error
+                    ];
                 }
             }
             $stmt->close();
