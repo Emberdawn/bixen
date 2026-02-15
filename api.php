@@ -70,6 +70,48 @@ if ($rawBody !== '') {
     }
 }
 
+$logDir = __DIR__ . '/logs';
+if (!is_dir($logDir)) {
+    @mkdir($logDir, 0775, true);
+}
+
+$logPaymentDebug = function ($event, $data = null) use ($logDir) {
+    $payload = [
+        'logged_at' => date('c'),
+        'event' => $event,
+        'data' => $data,
+    ];
+    $line = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($line === false) {
+        $line = json_encode([
+            'logged_at' => date('c'),
+            'event' => $event,
+            'data' => 'Failed to JSON encode log payload'
+        ]);
+    }
+    @file_put_contents($logDir . '/payments_debug.log', $line . PHP_EOL, FILE_APPEND);
+    error_log('[payments_debug] ' . $line);
+};
+
+$normalizeIntegerField = function ($value, $fieldName) {
+    if ($value === null || $value === '') {
+        return [null, "$fieldName is missing."];
+    }
+    if (is_int($value)) {
+        return [$value, null];
+    }
+    if (is_float($value)) {
+        if (floor($value) !== $value) {
+            return [null, "$fieldName must be an integer value."];
+        }
+        return [(int)$value, null];
+    }
+    if (is_string($value) && preg_match('/^-?\d+$/', trim($value)) === 1) {
+        return [(int)trim($value), null];
+    }
+    return [null, "$fieldName must be numeric integer-like data."];
+};
+
 // 3b. --- PASSWORD HELPERS ---
 $isSha256Hex = function ($value) {
     return is_string($value) && preg_match('/^[a-f0-9]{64}$/i', $value) === 1;
@@ -307,14 +349,7 @@ switch ($action) {
         break;
 
     case 'get_payments':
-        // Save the get_payments request to a .txt file for debugging.
-        $logDir = __DIR__ . '/logs';
-        if (!is_dir($logDir)) {
-            mkdir($logDir, 0775, true);
-        }
-
         $requestSnapshot = [
-            'logged_at' => date('c'),
             'method' => $_SERVER['REQUEST_METHOD'] ?? null,
             'action' => $action,
             'query' => $_GET,
@@ -323,12 +358,7 @@ switch ($action) {
             'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? null,
             'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
         ];
-
-        file_put_contents(
-            $logDir . '/get_payments_request.txt',
-            json_encode($requestSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
-            FILE_APPEND
-        );
+        $logPaymentDebug('get_payments_request', $requestSnapshot);
 
         // FIXED: Select users.username instead of users.name
         $result = $mysqli->query(
@@ -347,8 +377,10 @@ switch ($action) {
         }
         $paymentsJson = json_encode($payments);
 
-        // Save the get_payments reply to a .txt file for debugging/auditing.
-        file_put_contents($logDir . '/get_payments_reply.txt', $paymentsJson . PHP_EOL, FILE_APPEND);
+        $logPaymentDebug('get_payments_reply', [
+            'count' => count($payments),
+            'response' => $payments,
+        ]);
 
         echo $paymentsJson;
         break;
@@ -362,6 +394,13 @@ switch ($action) {
         }
         
         $payments_from_app = is_array($jsonInput) ? $jsonInput : [];
+        $logPaymentDebug('sync_payments_request_received', [
+            'method' => $_SERVER['REQUEST_METHOD'] ?? null,
+            'query' => $_GET,
+            'raw_input' => $rawBody,
+            'json_input' => $jsonInput,
+        ]);
+
         if ($payments_from_app && array_keys($payments_from_app) !== range(0, count($payments_from_app) - 1)) {
             // Accept a single payment object by normalizing it to a one-item list.
             $payments_from_app = [$payments_from_app];
@@ -384,29 +423,55 @@ switch ($action) {
                 $amount = $payment['amount'] ?? null;
                 $rawTimestamp = $payment['timestamp'] ?? $payment['time'] ?? $payment['created_at'] ?? null;
 
+                $logPaymentDebug('sync_payments_item_received', [
+                    'payload' => $payment,
+                    'localId_candidate' => $localId,
+                    'accountId_candidate' => $accountId,
+                    'userId_candidate' => $userId,
+                    'amount_candidate' => $amount,
+                    'timestamp_candidate' => $rawTimestamp,
+                ]);
+
                 if ($localId === null || $accountId === null || $userId === null || $amount === null || $rawTimestamp === null) {
+                    $localIdForLog = is_numeric($localId) ? (int)round((float)$localId) : null;
                     $sync_results[] = [
-                        'localId' => $localId !== null ? (int)$localId : null,
+                        'localId' => $localIdForLog,
                         'status' => 'error',
                         'message' => 'Missing required fields: id/local_id, account_id/accountId, user_id/userId, amount, timestamp.'
                     ];
+                    $logPaymentDebug('sync_payments_item_rejected', end($sync_results));
                     continue;
                 }
 
-                // Normalize and validate numeric IDs up-front to avoid NULL inserts.
-                if (!is_numeric($localId) || !is_numeric($accountId) || !is_numeric($userId) || !is_numeric($amount) || !is_numeric($rawTimestamp)) {
+                [$localIdNormalized, $localIdError] = $normalizeIntegerField($localId, 'local_id');
+                [$accountIdNormalized, $accountIdError] = $normalizeIntegerField($accountId, 'account_id');
+                [$userIdNormalized, $userIdError] = $normalizeIntegerField($userId, 'user_id');
+                [$amountNormalized, $amountError] = $normalizeIntegerField($amount, 'amount');
+
+                if ($localIdError || $accountIdError || $userIdError || $amountError || !is_numeric($rawTimestamp)) {
+                    $errorParts = array_values(array_filter([
+                        $localIdError,
+                        $accountIdError,
+                        $userIdError,
+                        $amountError,
+                        !is_numeric($rawTimestamp) ? 'timestamp must be numeric.' : null,
+                    ]));
                     $sync_results[] = [
-                        'localId' => is_numeric($localId) ? (int)$localId : null,
+                        'localId' => $localIdNormalized,
                         'status' => 'error',
-                        'message' => 'One or more required fields are not numeric.'
+                        'message' => implode(' ', $errorParts)
                     ];
+                    $logPaymentDebug('sync_payments_item_rejected', [
+                        'result' => end($sync_results),
+                        'payload' => $payment,
+                    ]);
                     continue;
                 }
 
-                $localId = (int)$localId;
-                $accountId = (int)$accountId;
-                $userId = (int)$userId;
-                $amount = (int)round((float)$amount);
+                $localId = $localIdNormalized;
+                $accountId = $accountIdNormalized;
+                $userId = $userIdNormalized;
+                $amount = $amountNormalized;
 
                 if ($accountId <= 0 || $userId <= 0) {
                     $sync_results[] = [
@@ -414,6 +479,10 @@ switch ($action) {
                         'status' => 'error',
                         'message' => 'account_id/accountId and user_id/userId must be positive integers.'
                     ];
+                    $logPaymentDebug('sync_payments_item_rejected', [
+                        'result' => end($sync_results),
+                        'payload' => $payment,
+                    ]);
                     continue;
                 }
 
@@ -430,12 +499,17 @@ switch ($action) {
                             'serverId' => (int)$mysqli->insert_id,
                             'status' => 'success'
                         ];
+                        $logPaymentDebug('sync_payments_item_saved', end($sync_results));
                     } else {
                         $sync_results[] = [
                             'localId' => $localId,
                             'status' => 'error',
                             'message' => $stmt->error
                         ];
+                        $logPaymentDebug('sync_payments_item_db_error', [
+                            'result' => end($sync_results),
+                            'payload' => $payment,
+                        ]);
                     }
                 } catch (mysqli_sql_exception $e) {
                     $sync_results[] = [
@@ -443,10 +517,15 @@ switch ($action) {
                         'status' => 'error',
                         'message' => $e->getMessage()
                     ];
+                    $logPaymentDebug('sync_payments_item_exception', [
+                        'result' => end($sync_results),
+                        'payload' => $payment,
+                    ]);
                 }
             }
             $stmt->close();
         }
+        $logPaymentDebug('sync_payments_response', $sync_results);
         echo json_encode($sync_results);
         break;
 
