@@ -343,6 +343,10 @@ switch ($action) {
         }
         
         $payments_from_app = is_array($jsonInput) ? $jsonInput : [];
+        if ($payments_from_app && array_keys($payments_from_app) !== range(0, count($payments_from_app) - 1)) {
+            // Accept a single payment object by normalizing it to a one-item list.
+            $payments_from_app = [$payments_from_app];
+        }
         $sync_results = [];
 
         $stmt = $mysqli->prepare("INSERT INTO payments (local_id, account_id, user_id, amount, `timestamp`) VALUES (?, ?, ?, ?, ?)");
@@ -400,17 +404,25 @@ switch ($action) {
                 $datetime = date("Y-m-d H:i:s", $timestampSeconds);
 
                 $stmt->bind_param("iiiis", $localId, $accountId, $userId, $amount, $datetime);
-                if ($stmt->execute()) {
-                    $sync_results[] = [
-                        'localId' => $localId,
-                        'serverId' => (int)$mysqli->insert_id,
-                        'status' => 'success'
-                    ];
-                } else {
+                try {
+                    if ($stmt->execute()) {
+                        $sync_results[] = [
+                            'localId' => $localId,
+                            'serverId' => (int)$mysqli->insert_id,
+                            'status' => 'success'
+                        ];
+                    } else {
+                        $sync_results[] = [
+                            'localId' => $localId,
+                            'status' => 'error',
+                            'message' => $stmt->error
+                        ];
+                    }
+                } catch (mysqli_sql_exception $e) {
                     $sync_results[] = [
                         'localId' => $localId,
                         'status' => 'error',
-                        'message' => $stmt->error
+                        'message' => $e->getMessage()
                     ];
                 }
             }
