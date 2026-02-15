@@ -307,6 +307,29 @@ switch ($action) {
         break;
 
     case 'get_payments':
+        // Save the get_payments request to a .txt file for debugging.
+        $logDir = __DIR__ . '/logs';
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0775, true);
+        }
+
+        $requestSnapshot = [
+            'logged_at' => date('c'),
+            'method' => $_SERVER['REQUEST_METHOD'] ?? null,
+            'action' => $action,
+            'query' => $_GET,
+            'json_input' => $jsonInput,
+            'raw_input' => $rawInput,
+            'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? null,
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+        ];
+
+        file_put_contents(
+            $logDir . '/get_payments_request.txt',
+            json_encode($requestSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
+            FILE_APPEND
+        );
+
         // FIXED: Select users.username instead of users.name
         $result = $mysqli->query(
             "SELECT payments.server_id, payments.local_id, payments.amount, payments.`timestamp`, " .
@@ -325,11 +348,7 @@ switch ($action) {
         $paymentsJson = json_encode($payments);
 
         // Save the get_payments reply to a .txt file for debugging/auditing.
-        $logDir = __DIR__ . '/logs';
-        if (!is_dir($logDir)) {
-            mkdir($logDir, 0775, true);
-        }
-        file_put_contents($logDir . '/get_payments_reply.txt', $paymentsJson . PHP_EOL);
+        file_put_contents($logDir . '/get_payments_reply.txt', $paymentsJson . PHP_EOL, FILE_APPEND);
 
         echo $paymentsJson;
         break;
