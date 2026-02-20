@@ -44,6 +44,15 @@ $tableStatements = [
         first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )",
+    "CREATE TABLE IF NOT EXISTS error_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        log_level VARCHAR(20) NOT NULL DEFAULT 'error',
+        context VARCHAR(120) NOT NULL,
+        event_name VARCHAR(255) NOT NULL,
+        message TEXT,
+        payload LONGTEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )",
 ];
 
 foreach ($tableStatements as $statement) {
@@ -69,6 +78,28 @@ if ($rawBody !== '') {
         $jsonInput = $decoded;
     }
 }
+
+$logToDatabase = function ($context, $eventName, $payload = null, $message = '', $logLevel = 'error') use ($mysqli) {
+    $payloadJson = null;
+    if ($payload !== null) {
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encoded !== false) {
+            $payloadJson = $encoded;
+        }
+    }
+
+    $stmt = $mysqli->prepare(
+        "INSERT INTO error_logs (log_level, context, event_name, message, payload) VALUES (?, ?, ?, ?, ?)"
+    );
+
+    if (!$stmt) {
+        return;
+    }
+
+    $stmt->bind_param('sssss', $logLevel, $context, $eventName, $message, $payloadJson);
+    $stmt->execute();
+    $stmt->close();
+};
 
 // 3b. --- PASSWORD HELPERS ---
 $isSha256Hex = function ($value) {
@@ -320,11 +351,6 @@ switch ($action) {
             break;
         }
 
-        $logDir = __DIR__ . '/logs';
-        if (!is_dir($logDir)) {
-            mkdir($logDir, 0775, true);
-        }
-
         $payments_from_app = is_array($jsonInput) ? $jsonInput : [];
         if ($payments_from_app && array_keys($payments_from_app) !== range(0, count($payments_from_app) - 1)) {
             // Accept a single payment object by normalizing it to a one-item list.
@@ -341,11 +367,7 @@ switch ($action) {
             'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
         ];
 
-        file_put_contents(
-            $logDir . '/sync_payments_request.txt',
-            json_encode($requestSnapshot, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
-            FILE_APPEND
-        );
+        $logToDatabase('sync_payments', 'sync_payments_request', $requestSnapshot, 'Incoming sync_payments request', 'info');
 
         $sync_results = [];
 
@@ -428,13 +450,96 @@ switch ($action) {
             $stmt->close();
         }
 
-        file_put_contents(
-            $logDir . '/sync_payments_reply.txt',
-            json_encode($sync_results, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
-            FILE_APPEND
-        );
+        $logToDatabase('sync_payments', 'sync_payments_response', $sync_results, 'sync_payments response payload', 'info');
 
         echo json_encode($sync_results);
+        break;
+
+    case 'get_error_logs':
+        $result = $mysqli->query(
+            "SELECT id, log_level, context, event_name, message, payload, created_at FROM error_logs ORDER BY created_at DESC LIMIT 500"
+        );
+        $logs = [];
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $logs[] = [
+                    'id' => (int)$row['id'],
+                    'log_level' => $row['log_level'],
+                    'context' => $row['context'],
+                    'event_name' => $row['event_name'],
+                    'message' => $row['message'],
+                    'payload' => $row['payload'],
+                    'created_at' => $row['created_at'],
+                ];
+            }
+        }
+        echo json_encode($logs);
+        break;
+
+    case 'delete_error_log':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'This action requires a POST request.']);
+            break;
+        }
+
+        $input = is_array($jsonInput) ? $jsonInput : [];
+        $id = isset($input['id']) ? (int)$input['id'] : 0;
+
+        if ($id <= 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'A valid log id is required.']);
+            break;
+        }
+
+        $stmt = $mysqli->prepare('DELETE FROM error_logs WHERE id = ?');
+        $stmt->bind_param('i', $id);
+        $stmt->execute();
+        $deleted = $stmt->affected_rows > 0;
+        $stmt->close();
+
+        echo json_encode(['status' => 'success', 'deleted' => $deleted]);
+        break;
+
+    case 'delete_error_logs':
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'This action requires a POST request.']);
+            break;
+        }
+
+        $input = is_array($jsonInput) ? $jsonInput : [];
+        $idsRaw = $input['ids'] ?? [];
+        if (!is_array($idsRaw) || !$idsRaw) {
+            http_response_code(400);
+            echo json_encode(['error' => 'ids must be a non-empty array.']);
+            break;
+        }
+
+        $ids = [];
+        foreach ($idsRaw as $rawId) {
+            $id = (int)$rawId;
+            if ($id > 0) {
+                $ids[] = $id;
+            }
+        }
+        $ids = array_values(array_unique($ids));
+
+        if (!$ids) {
+            http_response_code(400);
+            echo json_encode(['error' => 'No valid ids were provided.']);
+            break;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $types = str_repeat('i', count($ids));
+        $stmt = $mysqli->prepare("DELETE FROM error_logs WHERE id IN ($placeholders)");
+        $stmt->bind_param($types, ...$ids);
+        $stmt->execute();
+        $deletedCount = $stmt->affected_rows;
+        $stmt->close();
+
+        echo json_encode(['status' => 'success', 'deletedCount' => $deletedCount]);
         break;
 
     // --- NEW ACTIONS FOR DEVICE MANAGEMENT ---
@@ -515,7 +620,7 @@ switch ($action) {
     default:
         // UPDATED: Added new actions to the error message.
         http_response_code(400); // Bad Request
-        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'login', 'get_accounts', 'add_account', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
+        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'login', 'get_accounts', 'add_account', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status', 'get_error_logs', 'delete_error_log', 'delete_error_logs'."]);
         break;
 }
 

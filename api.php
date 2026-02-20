@@ -44,6 +44,15 @@ $tableStatements = [
         first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )",
+    "CREATE TABLE IF NOT EXISTS error_logs (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        log_level VARCHAR(20) NOT NULL DEFAULT 'error',
+        context VARCHAR(120) NOT NULL,
+        event_name VARCHAR(255) NOT NULL,
+        message TEXT,
+        payload LONGTEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )",
 ];
 
 foreach ($tableStatements as $statement) {
@@ -70,27 +79,34 @@ if ($rawBody !== '') {
     }
 }
 
-$logDir = __DIR__ . '/logs';
-if (!is_dir($logDir)) {
-    @mkdir($logDir, 0775, true);
-}
+$logToDatabase = function ($context, $eventName, $payload = null, $message = '', $logLevel = 'error') use ($mysqli) {
+    $payloadJson = null;
+    if ($payload !== null) {
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encoded !== false) {
+            $payloadJson = $encoded;
+        }
+    }
 
-$logPaymentDebug = function ($event, $data = null) use ($logDir) {
-    $payload = [
+    $stmt = $mysqli->prepare(
+        "INSERT INTO error_logs (log_level, context, event_name, message, payload) VALUES (?, ?, ?, ?, ?)"
+    );
+
+    if (!$stmt) {
+        return;
+    }
+
+    $stmt->bind_param('sssss', $logLevel, $context, $eventName, $message, $payloadJson);
+    $stmt->execute();
+    $stmt->close();
+};
+
+$logPaymentDebug = function ($event, $data = null, $message = '') use ($logToDatabase) {
+    $logToDatabase('payments', $event, [
         'logged_at' => date('c'),
         'event' => $event,
         'data' => $data,
-    ];
-    $line = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if ($line === false) {
-        $line = json_encode([
-            'logged_at' => date('c'),
-            'event' => $event,
-            'data' => 'Failed to JSON encode log payload'
-        ]);
-    }
-    @file_put_contents($logDir . '/payments_debug.log', $line . PHP_EOL, FILE_APPEND);
-    error_log('[payments_debug] ' . $line);
+    ], $message, 'info');
 };
 
 $maskSensitiveData = function ($value) use (&$maskSensitiveData) {
@@ -109,21 +125,12 @@ $maskSensitiveData = function ($value) use (&$maskSensitiveData) {
     return $masked;
 };
 
-$logJsonRequest = function ($event, $data = null) use ($logDir) {
-    $payload = [
+$logJsonRequest = function ($event, $data = null) use ($logToDatabase) {
+    $logToDatabase('json_requests', $event, [
         'logged_at' => date('c'),
         'event' => $event,
         'data' => $data,
-    ];
-    $line = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if ($line === false) {
-        $line = json_encode([
-            'logged_at' => date('c'),
-            'event' => $event,
-            'data' => 'Failed to JSON encode request log payload'
-        ]);
-    }
-    @file_put_contents($logDir . '/mobile_json_requests.log', $line . PHP_EOL, FILE_APPEND);
+    ], 'Incoming JSON API request', 'info');
 };
 
 $requestContentType = $_SERVER['CONTENT_TYPE'] ?? ($_SERVER['HTTP_CONTENT_TYPE'] ?? '');
