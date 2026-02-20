@@ -251,6 +251,12 @@
 <body>
     <aside>
         <h1>Bixen Admin</h1>
+        <nav>
+            <button type="button" data-section="devices" class="active">Connected Devices</button>
+            <button type="button" data-section="accounts">Accounts</button>
+            <button type="button" data-section="users">Users</button>
+            <button type="button" data-section="payments">Payments</button>
+        </nav>
     </aside>
     <main>
         <section id="devices" class="card">
@@ -280,7 +286,7 @@
             </div>
         </section>
 
-        <section id="accounts" class="card">
+        <section id="accounts" class="card hidden">
             <header>
                 <div>
                     <h2>Accounts</h2>
@@ -329,7 +335,7 @@
             </div>
         </div>
 
-        <section id="users" class="card">
+        <section id="users" class="card hidden">
             <header>
                 <div>
                     <h2>Users</h2>
@@ -411,7 +417,7 @@
             </div>
         </div>
 
-        <section id="payments" class="card">
+        <section id="payments" class="card hidden">
             <header>
                 <div>
                     <h2>Payments</h2>
@@ -440,6 +446,8 @@
     </main>
 
     <script>
+        const sections = document.querySelectorAll('main section');
+        const navButtons = document.querySelectorAll('nav button');
 
         const api = (action, options = {}) =>
             fetch(`backend.php?action=${action}`, {
@@ -789,6 +797,15 @@
             users: loadUsers,
             payments: loadPayments,
         };
+
+        navButtons.forEach((button) => {
+            button.addEventListener('click', () => {
+                const target = button.dataset.section;
+                navButtons.forEach((btn) => btn.classList.toggle('active', btn === button));
+                sections.forEach((section) => section.classList.toggle('hidden', section.id !== target));
+                refreshHandlers[target]?.();
+            });
+        });
 
         document.addEventListener('click', async (event) => {
             const refresh = event.target.closest('[data-refresh]');
