@@ -251,13 +251,6 @@
 <body>
     <aside>
         <h1>Bixen Admin</h1>
-        <nav>
-            <button type="button" data-section="devices" class="active">Connected Devices</button>
-            <button type="button" data-section="accounts">Accounts</button>
-            <button type="button" data-section="users">Users</button>
-            <button type="button" data-section="payments">Payments</button>
-            <button type="button" data-section="error-logs">Error Logs</button>
-        </nav>
     </aside>
     <main>
         <section id="devices" class="card">
@@ -287,7 +280,7 @@
             </div>
         </section>
 
-        <section id="accounts" class="card hidden">
+        <section id="accounts" class="card">
             <header>
                 <div>
                     <h2>Accounts</h2>
@@ -336,7 +329,7 @@
             </div>
         </div>
 
-        <section id="users" class="card hidden">
+        <section id="users" class="card">
             <header>
                 <div>
                     <h2>Users</h2>
@@ -418,7 +411,7 @@
             </div>
         </div>
 
-        <section id="payments" class="card hidden">
+        <section id="payments" class="card">
             <header>
                 <div>
                     <h2>Payments</h2>
@@ -444,40 +437,9 @@
             <div class="empty hidden" data-empty="payments">No payments synced yet.</div>
         </section>
 
-        <section id="error-logs" class="card hidden">
-            <header>
-                <div>
-                    <h2>Error Logs</h2>
-                    <p>View API log entries stored in the database and clean up old rows.</p>
-                </div>
-                <div class="toolbar">
-                    <button type="button" data-refresh="error-logs">Refresh</button>
-                    <button type="button" class="secondary" data-delete-selected-logs>Delete selected</button>
-                </div>
-            </header>
-            <table>
-                <thead>
-                    <tr>
-                        <th><input type="checkbox" data-select-all-logs aria-label="Select all logs"></th>
-                        <th>ID</th>
-                        <th>Level</th>
-                        <th>Context</th>
-                        <th>Event</th>
-                        <th>Message</th>
-                        <th>Created</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody data-table="error-logs"></tbody>
-            </table>
-            <div class="empty hidden" data-empty="error-logs">No log entries found.</div>
-        </section>
-
     </main>
 
     <script>
-        const sections = document.querySelectorAll('main section');
-        const navButtons = document.querySelectorAll('nav button');
 
         const api = (action, options = {}) =>
             fetch(`backend.php?action=${action}`, {
@@ -600,7 +562,6 @@
         };
 
         let usersCache = [];
-        let selectedErrorLogIds = new Set();
         const accountModal = document.querySelector('[data-account-modal]');
         const accountForm = document.querySelector('[data-account-form]');
         const openAccountModalButton = document.querySelector('[data-open-account-modal]');
@@ -639,66 +600,6 @@
             setEmptyState('users', true);
         };
 
-
-        const syncErrorLogSelection = () => {
-            const checkboxes = Array.from(document.querySelectorAll('[data-log-checkbox]'));
-            const selectAll = document.querySelector('[data-select-all-logs]');
-            const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
-
-            if (selectAll) {
-                selectAll.checked = checkboxes.length > 0 && selectedCount === checkboxes.length;
-                selectAll.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
-            }
-
-            selectedErrorLogIds = new Set(
-                checkboxes
-                    .filter((checkbox) => checkbox.checked)
-                    .map((checkbox) => Number(checkbox.dataset.logCheckbox))
-                    .filter((value) => Number.isInteger(value) && value > 0)
-            );
-        };
-
-        const loadErrorLogs = async () => {
-            const tbody = document.querySelector('[data-table="error-logs"]');
-            tbody.innerHTML = '';
-            selectedErrorLogIds = new Set();
-
-            let logs = [];
-            try {
-                logs = await api('get_error_logs');
-            } catch (error) {
-                handleLoadError('error-logs', error);
-                return;
-            }
-
-            if (!logs.length) {
-                setEmptyState('error-logs', false);
-                const selectAll = document.querySelector('[data-select-all-logs]');
-                if (selectAll) {
-                    selectAll.checked = false;
-                    selectAll.indeterminate = false;
-                }
-                return;
-            }
-
-            logs.forEach((logEntry) => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td><input type="checkbox" data-log-checkbox="${logEntry.id}" aria-label="Select log ${logEntry.id}"></td>
-                    <td>${logEntry.id}</td>
-                    <td>${logEntry.log_level ?? 'error'}</td>
-                    <td>${logEntry.context ?? '—'}</td>
-                    <td>${logEntry.event_name ?? '—'}</td>
-                    <td>${logEntry.message ?? '—'}</td>
-                    <td>${formatTimestamp(logEntry.created_at)}</td>
-                    <td><button type="button" class="secondary" data-delete-log="${logEntry.id}">Delete</button></td>
-                `;
-                tbody.appendChild(row);
-            });
-
-            setEmptyState('error-logs', true);
-            syncErrorLogSelection();
-        };
 
         const toggleAccountModal = (shouldOpen) => {
             if (!accountModal) return;
@@ -887,17 +788,7 @@
             accounts: loadAccounts,
             users: loadUsers,
             payments: loadPayments,
-            'error-logs': loadErrorLogs,
         };
-
-        navButtons.forEach((button) => {
-            button.addEventListener('click', () => {
-                const target = button.dataset.section;
-                navButtons.forEach((btn) => btn.classList.toggle('active', btn === button));
-                sections.forEach((section) => section.classList.toggle('hidden', section.id !== target));
-                refreshHandlers[target]?.();
-            });
-        });
 
         document.addEventListener('click', async (event) => {
             const refresh = event.target.closest('[data-refresh]');
@@ -942,47 +833,12 @@
                 return;
             }
 
-            const logCheckbox = event.target.closest('[data-log-checkbox]');
-            if (logCheckbox) {
-                syncErrorLogSelection();
-                return;
-            }
-
-            const deleteLogButton = event.target.closest('[data-delete-log]');
-            if (deleteLogButton) {
-                const id = Number(deleteLogButton.dataset.deleteLog);
-                if (!id) return;
-                await api('delete_error_log', {
-                    method: 'POST',
-                    body: JSON.stringify({ id }),
-                });
-                await loadErrorLogs();
-                return;
-            }
-
-            const deleteSelected = event.target.closest('[data-delete-selected-logs]');
-            if (deleteSelected) {
-                if (selectedErrorLogIds.size === 0) {
-                    alert('Select at least one log row first.');
-                    return;
-                }
-                await api('delete_error_logs', {
-                    method: 'POST',
-                    body: JSON.stringify({ ids: Array.from(selectedErrorLogIds) }),
-                });
-                await loadErrorLogs();
-            }
-        });
-
-        document.querySelector('[data-select-all-logs]')?.addEventListener('change', (event) => {
-            const isChecked = event.target.checked;
-            document.querySelectorAll('[data-log-checkbox]').forEach((checkbox) => {
-                checkbox.checked = isChecked;
-            });
-            syncErrorLogSelection();
         });
 
         loadDevices();
+        loadAccounts();
+        loadUsers();
+        loadPayments();
     </script>
 </body>
 </html>
