@@ -93,6 +93,58 @@ $logPaymentDebug = function ($event, $data = null) use ($logDir) {
     error_log('[payments_debug] ' . $line);
 };
 
+$maskSensitiveData = function ($value) use (&$maskSensitiveData) {
+    if (!is_array($value)) {
+        return $value;
+    }
+
+    $masked = [];
+    foreach ($value as $key => $item) {
+        if (is_string($key) && preg_match('/password|token|secret/i', $key) === 1) {
+            $masked[$key] = '***masked***';
+            continue;
+        }
+        $masked[$key] = $maskSensitiveData($item);
+    }
+    return $masked;
+};
+
+$logJsonRequest = function ($event, $data = null) use ($logDir) {
+    $payload = [
+        'logged_at' => date('c'),
+        'event' => $event,
+        'data' => $data,
+    ];
+    $line = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($line === false) {
+        $line = json_encode([
+            'logged_at' => date('c'),
+            'event' => $event,
+            'data' => 'Failed to JSON encode request log payload'
+        ]);
+    }
+    @file_put_contents($logDir . '/mobile_json_requests.log', $line . PHP_EOL, FILE_APPEND);
+};
+
+$requestContentType = $_SERVER['CONTENT_TYPE'] ?? ($_SERVER['HTTP_CONTENT_TYPE'] ?? '');
+$requestLooksJson = $rawBody !== '' && (
+    is_array($jsonInput)
+    || stripos($requestContentType, 'application/json') !== false
+);
+
+if ($requestLooksJson) {
+    $logJsonRequest('incoming_json_request', [
+        'method' => $_SERVER['REQUEST_METHOD'] ?? null,
+        'action' => $action,
+        'query' => $_GET,
+        'content_type' => $requestContentType,
+        'json_input' => is_array($jsonInput) ? $maskSensitiveData($jsonInput) : null,
+        'raw_input' => is_array($jsonInput) ? null : $rawBody,
+        'remote_addr' => $_SERVER['REMOTE_ADDR'] ?? null,
+        'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+    ]);
+}
+
 $normalizeIntegerField = function ($value, $fieldName) {
     if ($value === null || $value === '') {
         return [null, "$fieldName is missing."];
