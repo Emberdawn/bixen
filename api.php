@@ -358,6 +358,43 @@ switch ($action) {
         $stmt->close();
         break;
 
+    case 'add_account':
+        // Action: Create a new account.
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'The add_account action requires a POST request.']);
+            break;
+        }
+
+        $input = is_array($jsonInput) ? $jsonInput : [];
+        $name = trim($input['name'] ?? '');
+        $isActive = $input['isActive'] ?? true;
+
+        if ($name === '') {
+            http_response_code(400);
+            echo json_encode(['error' => 'Account name is required.']);
+            break;
+        }
+
+        if (!is_bool($isActive)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'isActive must be a boolean.']);
+            break;
+        }
+
+        $activeValue = $isActive ? 1 : 0;
+        $stmt = $mysqli->prepare("INSERT INTO accounts (name, is_active) VALUES (?, ?)");
+        $stmt->bind_param("si", $name, $activeValue);
+
+        if ($stmt->execute()) {
+            echo json_encode(['status' => 'success', 'id' => (int)$mysqli->insert_id]);
+        } else {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to create account.']);
+        }
+        $stmt->close();
+        break;
+
     case 'update_user':
         // Action: Update an existing user.
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
