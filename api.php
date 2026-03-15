@@ -188,44 +188,29 @@ $normalizePasswordHash = function ($password) use ($isSha256Hex) {
 // A switch statement directs the request to the correct block of code.
 switch ($action) {
     case 'ping':
-        // UPDATED: This action now handles device registration and status checks.
         $deviceId = $_GET['deviceId'] ?? null;
-        if (!$deviceId) {
-            http_response_code(400);
-            echo json_encode(['error' => 'deviceId is required for the ping action.']);
-            break;
-        }
-
-        // Use a prepared statement to prevent SQL injection.
-        $stmt = $mysqli->prepare("SELECT connection_status FROM devices WHERE device_id = ?");
-        $stmt->bind_param("s", $deviceId);
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        if ($result->num_rows > 0) {
-            // Device exists, fetch its status.
-            $row = $result->fetch_assoc();
-            $connectionStatus = $row['connection_status'];
-            // Also update the 'last_seen' timestamp.
+        if ($deviceId) {
             $updateStmt = $mysqli->prepare("UPDATE devices SET last_seen = CURRENT_TIMESTAMP WHERE device_id = ?");
             $updateStmt->bind_param("s", $deviceId);
             $updateStmt->execute();
             $updateStmt->close();
-        } else {
-            // New device, insert it with the default status 'allowed'.
-            $insertStmt = $mysqli->prepare("INSERT INTO devices (device_id) VALUES (?)");
-            $insertStmt->bind_param("s", $deviceId);
-            $insertStmt->execute();
-            $insertStmt->close();
-            $connectionStatus = 'allowed'; // Default status for new devices.
-        }
-        $stmt->close();
 
-        // Return the required JSON structure for the app.
-        echo json_encode([
-            'status' => 'success',
-            'connectionStatus' => $connectionStatus
-        ]);
+            $stmt = $mysqli->prepare("SELECT connection_status FROM devices WHERE device_id = ?");
+            $stmt->bind_param("s", $deviceId);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $device = $result->fetch_assoc();
+            $stmt->close();
+
+            $connectionStatus = ($device && $device['connection_status'] === 'denied') ? 'denied' : 'allowed';
+
+            echo json_encode([
+                'status' => 'success',
+                'connectionStatus' => $connectionStatus
+            ]);
+        } else {
+            echo json_encode(['status' => 'success', 'connectionStatus' => 'allowed']);
+        }
         break;
 
     case 'login':
