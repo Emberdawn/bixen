@@ -198,14 +198,19 @@ switch ($action) {
         break;
 
     case 'get_users':
-        $result = $mysqli->query("SELECT id, username, role FROM users;");
+        $result = $mysqli->query(
+            "SELECT users.id, users.username, users.role, " .
+            "EXISTS(SELECT 1 FROM payments WHERE payments.user_id = users.id) AS has_payments " .
+            "FROM users;"
+        );
         $users = [];
         if ($result) {
             while ($row = $result->fetch_assoc()) {
                 $users[] = [
                     'id' => (int)$row['id'],
                     'username' => $row['username'],
-                    'role' => $row['role']
+                    'role' => $row['role'],
+                    'hasPayments' => ((int)$row['has_payments']) === 1,
                 ];
             }
         }
@@ -345,6 +350,23 @@ switch ($action) {
         if ($userId <= 0) {
             http_response_code(400);
             echo json_encode(['error' => 'A valid user id is required.']);
+            break;
+        }
+
+        $checkStmt = $mysqli->prepare("SELECT COUNT(*) AS payment_count FROM payments WHERE user_id = ?");
+        $checkStmt->bind_param("i", $userId);
+        $checkStmt->execute();
+        $checkResult = $checkStmt->get_result();
+        $paymentCount = 0;
+        if ($checkResult) {
+            $paymentRow = $checkResult->fetch_assoc();
+            $paymentCount = isset($paymentRow['payment_count']) ? (int)$paymentRow['payment_count'] : 0;
+        }
+        $checkStmt->close();
+
+        if ($paymentCount > 0) {
+            http_response_code(409);
+            echo json_encode(['error' => 'Cannot delete a user with submitted payments.']);
             break;
         }
 
