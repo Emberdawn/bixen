@@ -112,6 +112,11 @@
             color: #0f172a;
         }
 
+        button.danger {
+            background: #dc2626;
+            color: #ffffff;
+        }
+
         .modal-backdrop {
             position: fixed;
             inset: 0;
@@ -600,6 +605,7 @@
                     <td>${user.role ?? 'user'}</td>
                     <td>
                         <button type="button" class="secondary" data-edit-user="${user.id}">Edit</button>
+                        <button type="button" class="danger" data-delete-user="${user.id}">Delete</button>
                     </td>
                 `;
                 tbody.appendChild(row);
@@ -847,6 +853,27 @@
                 const user = usersCache.find((entry) => entry.id === userId);
                 if (!user) return;
                 toggleEditUserModal(true, user);
+                return;
+            }
+
+            const deleteUserButton = event.target.closest('[data-delete-user]');
+            if (deleteUserButton) {
+                const userId = Number(deleteUserButton.dataset.deleteUser);
+                const user = usersCache.find((entry) => entry.id === userId);
+                if (!user) return;
+
+                const shouldDelete = window.confirm(`Delete user "${user.username}"? This action cannot be undone.`);
+                if (!shouldDelete) return;
+
+                try {
+                    await api('delete_user', {
+                        method: 'POST',
+                        body: JSON.stringify({ id: userId }),
+                    });
+                    await loadUsers();
+                } catch (error) {
+                    alert(error.message || 'Unable to delete user.');
+                }
                 return;
             }
 

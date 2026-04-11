@@ -331,6 +331,40 @@ switch ($action) {
         $stmt->close();
         break;
 
+    case 'delete_user':
+        // Action: Delete an existing user.
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            http_response_code(405);
+            echo json_encode(['error' => 'The delete_user action requires a POST request.']);
+            break;
+        }
+
+        $input = is_array($jsonInput) ? $jsonInput : [];
+        $userId = isset($input['id']) ? (int)$input['id'] : 0;
+
+        if ($userId <= 0) {
+            http_response_code(400);
+            echo json_encode(['error' => 'A valid user id is required.']);
+            break;
+        }
+
+        $stmt = $mysqli->prepare("DELETE FROM users WHERE id = ?");
+        $stmt->bind_param("i", $userId);
+
+        if ($stmt->execute()) {
+            if ($stmt->affected_rows > 0) {
+                echo json_encode(['status' => 'success']);
+            } else {
+                http_response_code(404);
+                echo json_encode(['error' => 'User not found.']);
+            }
+        } else {
+            http_response_code(500);
+            echo json_encode(['error' => 'Failed to delete user.']);
+        }
+        $stmt->close();
+        break;
+
     case 'get_payments':
         $result = $mysqli->query(
             "SELECT payments.server_id, payments.local_id, payments.amount, payments.`timestamp`, " .
@@ -524,7 +558,7 @@ switch ($action) {
     default:
         // UPDATED: Added new actions to the error message.
         http_response_code(400); // Bad Request
-        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'login', 'get_accounts', 'add_account', 'get_users', 'add_user', 'update_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
+        echo json_encode(['error' => "Unknown or missing action parameter. Available actions: 'ping', 'login', 'get_accounts', 'add_account', 'get_users', 'add_user', 'update_user', 'delete_user', 'get_payments', 'sync_payments', 'get_devices', 'update_status', 'update_account_status'."]);
         break;
 }
 
