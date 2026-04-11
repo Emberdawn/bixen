@@ -586,13 +586,16 @@
             usersCache = users;
             users.forEach((user) => {
                 const row = document.createElement('tr');
+                const deleteButtonHtml = user.hasPayments
+                    ? ''
+                    : `<button type="button" class="danger" data-delete-user="${user.id}">Delete</button>`;
                 row.innerHTML = `
                     <td>${user.id}</td>
                     <td>${user.username}</td>
                     <td>${user.role ?? 'user'}</td>
                     <td>
                         <button type="button" class="secondary" data-edit-user="${user.id}">Edit</button>
-                        <button type="button" class="danger" data-delete-user="${user.id}">Delete</button>
+                        ${deleteButtonHtml}
                     </td>
                 `;
                 tbody.appendChild(row);
