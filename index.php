@@ -378,13 +378,6 @@
                         Password
                         <input type="password" name="password" required autocomplete="new-password">
                     </label>
-                    <label>
-                        Role
-                        <select name="role">
-                            <option value="user" selected>User</option>
-                            <option value="admin">Admin</option>
-                        </select>
-                    </label>
                     <div class="modal-actions">
                         <button type="button" class="secondary" data-close-user-modal>Cancel</button>
                         <button type="submit">Create user</button>
@@ -718,7 +711,7 @@
             const payload = {
                 username: String(formData.get('username') || '').trim(),
                 password: String(formData.get('password') || ''),
-                role: String(formData.get('role') || 'user'),
+                role: 'user',
             };
 
             if (!payload.username || !payload.password) {
