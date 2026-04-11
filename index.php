@@ -392,16 +392,10 @@
                 <p>Update the user profile details.</p>
                 <form data-edit-user-form>
                     <input type="hidden" name="id">
+                    <input type="hidden" name="role" value="user">
                     <label>
                         Username
                         <input type="text" name="username" required autocomplete="off">
-                    </label>
-                    <label>
-                        Role
-                        <select name="role">
-                            <option value="user">User</option>
-                            <option value="admin">Admin</option>
-                        </select>
                     </label>
                     <label>
                         Password (leave blank to keep current)
@@ -663,10 +657,10 @@
                 editUserForm?.reset();
                 const idInput = editUserForm?.querySelector('input[name="id"]');
                 const usernameInput = editUserForm?.querySelector('input[name="username"]');
-                const roleSelect = editUserForm?.querySelector('select[name="role"]');
+                const roleInput = editUserForm?.querySelector('input[name="role"]');
                 if (idInput) idInput.value = user.id;
                 if (usernameInput) usernameInput.value = user.username ?? '';
-                if (roleSelect) roleSelect.value = user.role ?? 'user';
+                if (roleInput) roleInput.value = user.role ?? 'user';
                 usernameInput?.focus();
             } else if (!shouldOpen) {
                 editUserForm?.reset();
